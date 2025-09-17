@@ -24,47 +24,12 @@ def carregar_dados(uploaded_file):
 def converter_para_data(coluna):
     """Tenta converter uma coluna para datetime de várias formas"""
     try:
-        # Tentativa 1: Converter diretamente
-        return pd.to_datetime(coluna)
+        return pd.to_datetime(coluna, dayfirst=True, errors='coerce')
     except:
-        try:
-            # Tentativa 2: Converter com diferentes formatos
-            return pd.to_datetime(coluna, dayfirst=True)
-        except:
-            try:
-                # Tentativa 3: Converter como string e depois para data
-                return pd.to_datetime(coluna.astype(str))
-            except:
-                # Se nada funcionar, retorna a coluna original
-                return coluna
-
-# Função para detectar automaticamente colunas de data
-def detectar_colunas_data(dados):
-    """Detecta automaticamente colunas que podem ser datas"""
-    colunas_data = []
-    
-    for col in dados.columns:
-        # Verifica se já é datetime
-        if pd.api.types.is_datetime64_any_dtype(dados[col]):
-            colunas_data.append(col)
-        # Verifica se a coluna tem nome que sugere ser data
-        elif any(palavra in col.lower() for palavra in ['data', 'date', 'dia', 'time', 'hora', 'timestamp']):
-            colunas_data.append(col)
-        # Verifica se pode ser convertido para datetime
-        elif dados[col].dtype == 'object':
-            try:
-                # Testa com uma amostra
-                amostra = dados[col].head(10).dropna()
-                if len(amostra) > 0:
-                    pd.to_datetime(amostra, errors='coerce')
-                    colunas_data.append(col)
-            except:
-                pass
-    
-    return colunas_data
+        return coluna
 
 def main():
-    st.title("📊 Dashboard de Utilidades - Análise Completa")
+    st.title("📊 Dashboard de Utilidades - Análise Estatística")
     
     # Sidebar para upload
     with st.sidebar:
@@ -72,14 +37,11 @@ def main():
         
         uploaded_file = st.file_uploader(
             "Selecione o arquivo Excel:",
-            type=['xlsx', 'xls'],
-            help="Faça upload do arquivo 'KPI - Utilidades 101623 rev5.xlsx'"
+            type=['xlsx', 'xls']
         )
         
         if uploaded_file is not None:
             st.success("✅ Arquivo selecionado!")
-            st.write(f"**Nome:** {uploaded_file.name}")
-            st.write(f"**Tamanho:** {uploaded_file.size / 1024:.1f} KB")
         else:
             st.info("📝 Aguardando upload do arquivo...")
             st.stop()
@@ -88,7 +50,7 @@ def main():
     dados = carregar_dados(uploaded_file)
     
     if dados is None:
-        st.error("❌ Falha ao carregar os dados. Verifique o formato do arquivo.")
+        st.error("❌ Falha ao carregar os dados.")
         st.stop()
 
     # ===== DADOS CARREGADOS COM SUCESSO =====
@@ -96,189 +58,198 @@ def main():
 
     # ===== DETECÇÃO AUTOMÁTICA DE COLUNAS =====
     colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
-    colunas_data = detectar_colunas_data(dados)
     
-    # Mostrar informações das colunas detectadas
-    st.sidebar.header("🔍 Colunas Detectadas")
-    st.sidebar.write(f"**Numéricas:** {len(colunas_numericas)}")
-    st.sidebar.write(f"**Possíveis Datas:** {len(colunas_data)}")
-    
-    if colunas_data:
-        st.sidebar.write("Colunas detectadas como datas:")
-        for col in colunas_data:
-            st.sidebar.write(f"• {col}")
+    # Detectar colunas de data
+    colunas_data = []
+    for col in dados.columns:
+        if any(palavra in col.lower() for palavra in ['data', 'date', 'dia', 'time']):
+            colunas_data.append(col)
 
-    # ===== INFORMACOES BASICAS =====
-    st.header("📈 Informações dos Dados")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total de Registros", len(dados))
-    with col2:
-        st.metric("Total de Colunas", len(dados.columns))
-    with col3:
-        st.metric("Colunas Numéricas", len(colunas_numericas))
-    with col4:
-        st.metric("Colunas de Data", len(colunas_data))
-
-    # Visualização rápida dos dados
-    with st.expander("👀 Visualizar Dados Completos"):
-        st.dataframe(dados)
-
-    # ===== ANALISES ESTATISTICAS COMPLETAS =====
-    st.header("📊 Análises Estatísticas Completas")
-    
-    # Abas para diferentes tipos de análise
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📈 Séries Temporais", "📋 Estatísticas", "🔥 Correlações", 
-        "📊 Distribuições", "🔍 Dispersão", "📦 Boxplots"
-    ])
-
-    with tab1:
-        st.subheader("📈 Análise de Séries Temporais")
+    # ===== ANÁLISE DE SÉRIES TEMPORAIS =====
+    if colunas_data and colunas_numericas:
+        st.header("📈 Análise de Séries Temporais")
         
-        if colunas_data and colunas_numericas:
-            col1, col2 = st.columns(2)
-            with col1:
-                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data")
-            with col2:
-                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_valor")
-            
-            if coluna_data and coluna_valor:
-                # Tentar converter a coluna de data
-                dados_temp = dados.copy()
-                dados_temp['Data_Convertida'] = converter_para_data(dados_temp[coluna_data])
-                
-                # Verificar se a conversão foi bem-sucedida
-                if pd.api.types.is_datetime64_any_dtype(dados_temp['Data_Convertida']):
-                    # Ordenar por data
-                    dados_temp = dados_temp.sort_values(by='Data_Convertida')
-                    
-                    fig = px.line(dados_temp, x='Data_Convertida', y=coluna_valor, 
-                                 title=f"Evolução Temporal de {coluna_valor}",
-                                 labels={'Data_Convertida': 'Data', coluna_valor: 'Valor'})
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Estatísticas temporais
-                    st.subheader("📋 Estatísticas Temporais")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Primeira Data", dados_temp['Data_Convertida'].min().strftime('%d/%m/%Y'))
-                    with col2:
-                        st.metric("Última Data", dados_temp['Data_Convertida'].max().strftime('%d/%m/%Y'))
-                    with col3:
-                        st.metric("Média", f"{dados_temp[coluna_valor].mean():.2f}")
-                    with col4:
-                        if len(dados_temp) > 1:
-                            crescimento = ((dados_temp[coluna_valor].iloc[-1] - dados_temp[coluna_valor].iloc[0]) / dados_temp[coluna_valor].iloc[0] * 100) if dados_temp[coluna_valor].iloc[0] != 0 else 0
-                            st.metric("Crescimento", f"{crescimento:.1f}%")
-                        else:
-                            st.metric("Crescimento", "N/A")
-                else:
-                    st.warning(f"⚠️ Não foi possível converter a coluna '{coluna_data}' para data.")
-                    st.info("💡 Dica: Verifique o formato das datas no arquivo Excel.")
-                    
-                    # Mostrar amostra dos dados da coluna de data
-                    st.write("**Amostra dos dados da coluna de data:**")
-                    st.write(dados_temp[coluna_data].head(10).values)
-        else:
-            if not colunas_data:
-                st.warning("❌ Nenhuma coluna de data detectada. Verifique se existe uma coluna com datas.")
-            if not colunas_numericas:
-                st.warning("❌ Nenhuma coluna numérica detectada.")
-
-    with tab2:
-        st.subheader("📋 Estatísticas Descritivas por Coluna")
+        col1, col2 = st.columns(2)
+        with col1:
+            coluna_data = st.selectbox("Coluna de Data:", colunas_data)
+        with col2:
+            coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas)
         
-        if colunas_numericas:
-            coluna_selecionada = st.selectbox("Selecione a coluna:", colunas_numericas, key="stats_col")
+        if coluna_data and coluna_valor:
+            # Converter data
+            dados_temp = dados.copy()
+            dados_temp['Data_Convertida'] = converter_para_data(dados_temp[coluna_data])
             
-            if coluna_selecionada:
-                stats = dados[coluna_selecionada].describe()
+            if pd.api.types.is_datetime64_any_dtype(dados_temp['Data_Convertida']):
+                dados_temp = dados_temp.sort_values(by='Data_Convertida')
                 
-                # Métricas principais
+                # Gráfico de linha
+                fig = px.line(dados_temp, x='Data_Convertida', y=coluna_valor, 
+                             title=f"Evolução Temporal de {coluna_valor}")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # ===== ESTATÍSTICAS DETALHADAS =====
+                st.subheader("📊 Estatísticas Detalhadas")
+                
+                # Métricas básicas
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Média", f"{stats['mean']:.2f}")
+                    st.metric("Média", f"{dados_temp[coluna_valor].mean():.2f}")
                 with col2:
-                    st.metric("Mediana", f"{stats['50%']:.2f}")
+                    st.metric("Mediana", f"{dados_temp[coluna_valor].median():.2f}")
                 with col3:
-                    st.metric("Desvio Padrão", f"{stats['std']:.2f}")
+                    st.metric("Moda", f"{dados_temp[coluna_valor].mode().iloc[0] if not dados_temp[coluna_valor].mode().empty else 'N/A'}")
                 with col4:
-                    cv = (stats['std']/stats['mean'])*100 if stats['mean'] != 0 else 0
-                    st.metric("Coef. Variação", f"{cv:.1f}%")
-        else:
-            st.warning("❌ Nenhuma coluna numérica encontrada")
-
-    with tab3:
-        st.subheader("🔥 Análise de Correlações")
-        
-        if len(colunas_numericas) > 1:
-            # Matriz de correlação completa
-            corr_matrix = dados[colunas_numericas].corr()
-            
-            fig = px.imshow(corr_matrix, 
-                           title="Matriz de Correlação",
-                           color_continuous_scale="RdBu_r",
-                           aspect="auto",
-                           text_auto=True)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("❌ Número insuficiente de colunas numéricas")
-
-    with tab4:
-        st.subheader("📊 Análise de Distribuições")
-        
-        if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para análise de distribuição:", colunas_numericas, key="dist_col")
-            
-            if coluna_selecionada:
-                col1, col2 = st.columns(2)
+                    st.metric("Desvio Padrão", f"{dados_temp[coluna_valor].std():.2f}")
                 
-                with col1:
-                    # Histograma
-                    fig_hist = px.histogram(dados, x=coluna_selecionada, 
-                                          title=f"Distribuição de {coluna_selecionada}",
-                                          nbins=30)
-                    st.plotly_chart(fig_hist, use_container_width=True)
+                # Quartis e intervalos
+                Q1 = dados_temp[coluna_valor].quantile(0.25)
+                Q3 = dados_temp[coluna_valor].quantile(0.75)
+                IQR = Q3 - Q1
                 
-                with col2:
-                    # Boxplot
-                    fig_box = px.box(dados, y=coluna_selecionada, 
-                                   title=f"Boxplot de {coluna_selecionada}")
-                    st.plotly_chart(fig_box, use_container_width=True)
-        else:
-            st.warning("❌ Nenhuma coluna numérica encontrada")
+                col5, col6, col7, col8 = st.columns(4)
+                with col5:
+                    st.metric("Q1 (25%)", f"{Q1:.2f}")
+                with col6:
+                    st.metric("Q3 (75%)", f"{Q3:.2f}")
+                with col7:
+                    st.metric("IQR", f"{IQR:.2f}")
+                with col8:
+                    st.metric("Amplitude", f"{dados_temp[coluna_valor].max() - dados_temp[coluna_valor].min():.2f}")
+                
+                # Tendência e crescimento
+                if len(dados_temp) > 1:
+                    crescimento = ((dados_temp[coluna_valor].iloc[-1] - dados_temp[coluna_valor].iloc[0]) / dados_temp[coluna_valor].iloc[0] * 100) if dados_temp[coluna_valor].iloc[0] != 0 else 0
+                    
+                    col9, col10 = st.columns(2)
+                    with col9:
+                        st.metric("Crescimento Total", f"{crescimento:.1f}%")
+                    with col10:
+                        # Tendência linear simples
+                        x = np.arange(len(dados_temp))
+                        y = dados_temp[coluna_valor].values
+                        coef = np.polyfit(x, y, 1)[0]
+                        tendencia = "↗️ Alta" if coef > 0 else "↘️ Baixa" if coef < 0 else "➡️ Estável"
+                        st.metric("Tendência", tendencia)
+                
+                # Informações temporais
+                st.subheader("📅 Informações Temporais")
+                col11, col12, col13, col14 = st.columns(4)
+                with col11:
+                    st.metric("Primeira Data", dados_temp['Data_Convertida'].min().strftime('%d/%m/%Y'))
+                with col12:
+                    st.metric("Última Data", dados_temp['Data_Convertida'].max().strftime('%d/%m/%Y'))
+                with col13:
+                    st.metric("Período", f"{(dados_temp['Data_Convertida'].max() - dados_temp['Data_Convertida'].min()).days} dias")
+                with col14:
+                    st.metric("Dados por Dia", f"{len(dados_temp)/max(1, (dados_temp['Data_Convertida'].max() - dados_temp['Data_Convertida'].min()).days):.1f}")
+            
+            else:
+                st.warning("Não foi possível converter as datas. Mostrando análise sem ordenação temporal.")
+                fig = px.line(dados_temp, x=coluna_data, y=coluna_valor, 
+                             title=f"Evolução de {coluna_valor}")
+                st.plotly_chart(fig, use_container_width=True)
 
-    with tab5:
-        st.subheader("🔍 Gráficos de Dispersão")
+    # ===== ANÁLISE ESTATÍSTICA GERAL =====
+    st.header("📋 Análise Estatística Geral")
+    
+    if colunas_numericas:
+        coluna_analise = st.selectbox("Selecione a coluna para análise detalhada:", colunas_numericas)
         
-        if len(colunas_numericas) >= 2:
-            col1, col2 = st.columns(2)
+        if coluna_analise:
+            # Estatísticas descritivas
+            stats = dados[coluna_analise].describe()
+            
+            st.subheader("Estatísticas Descritivas")
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                eixo_x = st.selectbox("Eixo X:", colunas_numericas, key="scatter_x")
+                st.metric("Média", f"{stats['mean']:.2f}")
+                st.metric("Moda", f"{dados[coluna_analise].mode().iloc[0] if not dados[coluna_analise].mode().empty else 'N/A'}")
             with col2:
-                eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
+                st.metric("Mediana", f"{stats['50%']:.2f}")
+                st.metric("Desvio Padrão", f"{stats['std']:.2f}")
+            with col3:
+                st.metric("Mínimo", f"{stats['min']:.2f}")
+                st.metric("Máximo", f"{stats['max']:.2f}")
+            with col4:
+                st.metric("Q1 (25%)", f"{stats['25%']:.2f}")
+                st.metric("Q3 (75%)", f"{stats['75%']:.2f}")
             
-            if eixo_x and eixo_y:
-                fig = px.scatter(dados, x=eixo_x, y=eixo_y, 
-                                title=f"{eixo_y} vs {eixo_x}")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("❌ Número insuficiente de colunas numéricas")
+            # Visualizações
+            st.subheader("Visualizações")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig_hist = px.histogram(dados, x=coluna_analise, 
+                                      title=f"Distribuição de {coluna_analise}",
+                                      nbins=30)
+                st.plotly_chart(fig_hist, use_container_width=True)
+            
+            with col2:
+                fig_box = px.box(dados, y=coluna_analise, 
+                               title=f"Boxplot de {coluna_analise}")
+                st.plotly_chart(fig_box, use_container_width=True)
+            
+            # Análise de outliers
+            Q1 = dados[coluna_analise].quantile(0.25)
+            Q3 = dados[coluna_analise].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            outliers = dados[(dados[coluna_analise] < lower_bound) | (dados[coluna_analise] > upper_bound)]
+            
+            st.metric("Número de Outliers", len(outliers))
+            
+            if len(outliers) > 0:
+                with st.expander("Ver Outliers"):
+                    st.dataframe(outliers[[coluna_analise]])
 
-    with tab6:
-        st.subheader("📦 Boxplots por Variável")
+    # ===== ANÁLISE DE CORRELAÇÕES =====
+    if len(colunas_numericas) > 1:
+        st.header("🔥 Análise de Correlações")
         
-        if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para boxplot:", colunas_numericas, key="boxplot_col")
+        corr_matrix = dados[colunas_numericas].corr()
+        fig = px.imshow(corr_matrix, 
+                       title="Matriz de Correlação",
+                       color_continuous_scale="RdBu_r",
+                       aspect="auto")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Top correlações
+        st.subheader("Correlações mais Fortes")
+        correlations = []
+        for i in range(len(corr_matrix.columns)):
+            for j in range(i+1, len(corr_matrix.columns)):
+                correlations.append({
+                    'Variável 1': corr_matrix.columns[i],
+                    'Variável 2': corr_matrix.columns[j],
+                    'Correlação': corr_matrix.iloc[i, j]
+                })
+        
+        df_corr = pd.DataFrame(correlations)
+        df_corr['Abs_Correlation'] = df_corr['Correlação'].abs()
+        top_correlations = df_corr.nlargest(5, 'Abs_Correlation')
+        
+        for _, row in top_correlations.iterrows():
+            st.write(f"**{row['Variável 1']}** ↔ **{row['Variável 2']}**: {row['Correlação']:.3f}")
+
+    # ===== GRÁFICOS DE DISPERSÃO =====
+    if len(colunas_numericas) >= 2:
+        st.header("🔍 Gráficos de Dispersão")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            eixo_x = st.selectbox("Eixo X:", colunas_numericas)
+        with col2:
+            eixo_y = st.selectbox("Eixo Y:", colunas_numericas)
+        
+        if eixo_x and eixo_y:
+            fig = px.scatter(dados, x=eixo_x, y=eixo_y, 
+                            title=f"{eixo_y} vs {eixo_x}")
+            st.plotly_chart(fig, use_container_width=True)
             
-            if coluna_selecionada:
-                fig = px.box(dados, y=coluna_selecionada, 
-                            title=f"Boxplot de {coluna_selecionada}")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("❌ Nenhuma coluna numérica encontrada")
+            correlacao = dados[eixo_x].corr(dados[eixo_y])
+            st.metric("Coeficiente de Correlação", f"{correlacao:.3f}")
 
     # ===== DOWNLOAD DOS DADOS =====
     st.header("💾 Exportar Resultados")
@@ -287,7 +258,7 @@ def main():
     st.download_button(
         label="📥 Baixar dados completos (CSV)",
         data=csv,
-        file_name="dados_utilidades_completos.csv",
+        file_name="dados_analise.csv",
         mime="text/csv"
     )
 
