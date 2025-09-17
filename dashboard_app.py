@@ -15,20 +15,28 @@ def carregar_dados(uploaded_file):
     """Carrega os dados do arquivo Excel com cache para melhor performance"""
     try:
         dados = pd.read_excel(uploaded_file)
-        
-        # Tentar converter colunas para datetime automaticamente
-        for col in dados.columns:
-            if dados[col].dtype == 'object':
-                try:
-                    dados[col] = pd.to_datetime(dados[col])
-                    st.sidebar.info(f"✅ Coluna '{col}' convertida para data")
-                except:
-                    pass
-        
         return dados
     except Exception as e:
         st.error(f"Erro ao carregar arquivo: {str(e)}")
         return None
+
+# Função inteligente para converter para data
+def converter_para_data(coluna):
+    """Tenta converter uma coluna para datetime de várias formas"""
+    try:
+        # Tentativa 1: Converter diretamente
+        return pd.to_datetime(coluna)
+    except:
+        try:
+            # Tentativa 2: Converter com diferentes formatos
+            return pd.to_datetime(coluna, dayfirst=True)
+        except:
+            try:
+                # Tentativa 3: Converter como string e depois para data
+                return pd.to_datetime(coluna.astype(str))
+            except:
+                # Se nada funcionar, retorna a coluna original
+                return coluna
 
 # Função para detectar automaticamente colunas de data
 def detectar_colunas_data(dados):
@@ -39,26 +47,21 @@ def detectar_colunas_data(dados):
         # Verifica se já é datetime
         if pd.api.types.is_datetime64_any_dtype(dados[col]):
             colunas_data.append(col)
+        # Verifica se a coluna tem nome que sugere ser data
+        elif any(palavra in col.lower() for palavra in ['data', 'date', 'dia', 'time', 'hora', 'timestamp']):
+            colunas_data.append(col)
         # Verifica se pode ser convertido para datetime
         elif dados[col].dtype == 'object':
             try:
-                # Tenta converter amostra para testar
-                pd.to_datetime(dados[col].head(10))
-                colunas_data.append(col)
+                # Testa com uma amostra
+                amostra = dados[col].head(10).dropna()
+                if len(amostra) > 0:
+                    pd.to_datetime(amostra, errors='coerce')
+                    colunas_data.append(col)
             except:
                 pass
     
     return colunas_data
-
-# Função para calcular intervalo de confiança sem scipy
-def calcular_intervalo_confianca(data, confidence=0.95):
-    """Calcula intervalo de confiança usando apenas numpy/pandas"""
-    n = len(data)
-    m = data.mean()
-    se = data.std() / np.sqrt(n)
-    # Usando aproximação normal para grandes amostras
-    h = 1.96 * se  # 1.96 para 95% de confiança
-    return m - h, m + h
 
 def main():
     st.title("📊 Dashboard de Utilidades - Análise Completa")
@@ -98,10 +101,10 @@ def main():
     # Mostrar informações das colunas detectadas
     st.sidebar.header("🔍 Colunas Detectadas")
     st.sidebar.write(f"**Numéricas:** {len(colunas_numericas)}")
-    st.sidebar.write(f"**Datas:** {len(colunas_data)}")
+    st.sidebar.write(f"**Possíveis Datas:** {len(colunas_data)}")
     
     if colunas_data:
-        st.sidebar.write("Colunas de data detectadas:")
+        st.sidebar.write("Colunas detectadas como datas:")
         for col in colunas_data:
             st.sidebar.write(f"• {col}")
 
@@ -126,9 +129,9 @@ def main():
     st.header("📊 Análises Estatísticas Completas")
     
     # Abas para diferentes tipos de análise
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Séries Temporais", "📋 Estatísticas", "🔥 Correlações", 
-        "📊 Distribuições", "🔍 Dispersão", "📦 Boxplots", "🧮 Estatísticas Avançadas"
+        "📊 Distribuições", "🔍 Dispersão", "📦 Boxplots"
     ])
 
     with tab1:
@@ -142,37 +145,42 @@ def main():
                 coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_valor")
             
             if coluna_data and coluna_valor:
-                # Garantir que a coluna de data está no formato correto
+                # Tentar converter a coluna de data
                 dados_temp = dados.copy()
-                if not pd.api.types.is_datetime64_any_dtype(dados_temp[coluna_data]):
-                    try:
-                        dados_temp[coluna_data] = pd.to_datetime(dados_temp[coluna_data])
-                    except:
-                        st.error(f"❌ Não foi possível converter '{coluna_data}' para data")
+                dados_temp['Data_Convertida'] = converter_para_data(dados_temp[coluna_data])
                 
-                # Ordenar por data
-                dados_temp = dados_temp.sort_values(by=coluna_data)
-                
-                fig = px.line(dados_temp, x=coluna_data, y=coluna_valor, 
-                             title=f"Evolução Temporal de {coluna_valor}",
-                             labels={coluna_data: 'Data', coluna_valor: 'Valor'})
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Estatísticas temporais
-                st.subheader("📋 Estatísticas Temporais")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Primeira Data", dados_temp[coluna_data].min().strftime('%d/%m/%Y'))
-                with col2:
-                    st.metric("Última Data", dados_temp[coluna_data].max().strftime('%d/%m/%Y'))
-                with col3:
-                    st.metric("Média", f"{dados_temp[coluna_valor].mean():.2f}")
-                with col4:
-                    if len(dados_temp) > 1:
-                        crescimento = ((dados_temp[coluna_valor].iloc[-1] - dados_temp[coluna_valor].iloc[0]) / dados_temp[coluna_valor].iloc[0] * 100) if dados_temp[coluna_valor].iloc[0] != 0 else 0
-                        st.metric("Crescimento", f"{crescimento:.1f}%")
-                    else:
-                        st.metric("Crescimento", "N/A")
+                # Verificar se a conversão foi bem-sucedida
+                if pd.api.types.is_datetime64_any_dtype(dados_temp['Data_Convertida']):
+                    # Ordenar por data
+                    dados_temp = dados_temp.sort_values(by='Data_Convertida')
+                    
+                    fig = px.line(dados_temp, x='Data_Convertida', y=coluna_valor, 
+                                 title=f"Evolução Temporal de {coluna_valor}",
+                                 labels={'Data_Convertida': 'Data', coluna_valor: 'Valor'})
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Estatísticas temporais
+                    st.subheader("📋 Estatísticas Temporais")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Primeira Data", dados_temp['Data_Convertida'].min().strftime('%d/%m/%Y'))
+                    with col2:
+                        st.metric("Última Data", dados_temp['Data_Convertida'].max().strftime('%d/%m/%Y'))
+                    with col3:
+                        st.metric("Média", f"{dados_temp[coluna_valor].mean():.2f}")
+                    with col4:
+                        if len(dados_temp) > 1:
+                            crescimento = ((dados_temp[coluna_valor].iloc[-1] - dados_temp[coluna_valor].iloc[0]) / dados_temp[coluna_valor].iloc[0] * 100) if dados_temp[coluna_valor].iloc[0] != 0 else 0
+                            st.metric("Crescimento", f"{crescimento:.1f}%")
+                        else:
+                            st.metric("Crescimento", "N/A")
+                else:
+                    st.warning(f"⚠️ Não foi possível converter a coluna '{coluna_data}' para data.")
+                    st.info("💡 Dica: Verifique o formato das datas no arquivo Excel.")
+                    
+                    # Mostrar amostra dos dados da coluna de data
+                    st.write("**Amostra dos dados da coluna de data:**")
+                    st.write(dados_temp[coluna_data].head(10).values)
         else:
             if not colunas_data:
                 st.warning("❌ Nenhuma coluna de data detectada. Verifique se existe uma coluna com datas.")
@@ -199,17 +207,6 @@ def main():
                 with col4:
                     cv = (stats['std']/stats['mean'])*100 if stats['mean'] != 0 else 0
                     st.metric("Coef. Variação", f"{cv:.1f}%")
-                
-                # Métricas secundárias
-                col5, col6, col7, col8 = st.columns(4)
-                with col5:
-                    st.metric("Mínimo", f"{stats['min']:.2f}")
-                with col6:
-                    st.metric("Máximo", f"{stats['max']:.2f}")
-                with col7:
-                    st.metric("Q1 (25%)", f"{stats['25%']:.2f}")
-                with col8:
-                    st.metric("Q3 (75%)", f"{stats['75%']:.2f}")
         else:
             st.warning("❌ Nenhuma coluna numérica encontrada")
 
@@ -280,28 +277,6 @@ def main():
                 fig = px.box(dados, y=coluna_selecionada, 
                             title=f"Boxplot de {coluna_selecionada}")
                 st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("❌ Nenhuma coluna numérica encontrada")
-
-    with tab7:
-        st.subheader("🧮 Estatísticas Avançadas")
-        
-        if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para análise avançada:", colunas_numericas, key="advanced_col")
-            
-            if coluna_selecionada:
-                data = dados[coluna_selecionada].dropna()
-                
-                # Estatísticas avançadas
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Soma", f"{data.sum():.2f}")
-                with col2:
-                    st.metric("Variância", f"{data.var():.2f}")
-                with col3:
-                    st.metric("Erro Padrão", f"{data.std()/np.sqrt(len(data)):.2f}")
-                with col4:
-                    st.metric("Intervalo", f"{data.max() - data.min():.2f}")
         else:
             st.warning("❌ Nenhuma coluna numérica encontrada")
 
