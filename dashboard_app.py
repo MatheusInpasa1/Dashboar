@@ -29,7 +29,7 @@ def converter_para_data(coluna):
     except:
         return coluna
 
-# Função para detectar outliers (sem scipy)
+# Função para detectar outliers
 def detectar_outliers(dados, coluna):
     Q1 = dados[coluna].quantile(0.25)
     Q3 = dados[coluna].quantile(0.75)
@@ -38,61 +38,37 @@ def detectar_outliers(dados, coluna):
     upper_bound = Q3 + 1.5 * IQR
     return dados[(dados[coluna] < lower_bound) | (dados[coluna] > upper_bound)]
 
-# Função para teste de normalidade simplificado (sem scipy)
-def teste_normalidade_simplificado(data):
-    """Teste de normalidade simplificado usando apenas pandas/numpy"""
-    if len(data) < 3:
-        return 0, 1.0  # Retorna valores padrão para pequenas amostras
+# Função para calcular regressão linear manualmente
+def calcular_regressao_linear(x, y):
+    """Calcula regressão linear manualmente"""
+    # Remover valores NaN
+    mask = ~np.isnan(x) & ~np.isnan(y)
+    x_clean = x[mask]
+    y_clean = y[mask]
     
-    # Coeficiente de assimetria e curtose
-    skewness = data.skew()
-    kurtosis = data.kurtosis()
+    if len(x_clean) < 2:
+        return None, None, None
     
-    # Teste simplificado baseado em assimetria e curtose
-    # Valores próximos de 0 indicam normalidade
-    stat = abs(skewness) + abs(kurtosis) / 3
-    p_value = 1.0 / (1.0 + stat)  # Aproximação simplificada
+    n = len(x_clean)
+    x_mean = np.mean(x_clean)
+    y_mean = np.mean(y_clean)
     
-    return stat, p_value
-
-# Função para gráfico Q-Q simplificado (sem scipy)
-def criar_qq_plot(data):
-    """Cria gráfico Q-Q simplificado"""
-    data_clean = data.dropna()
-    if len(data_clean) < 2:
-        return go.Figure()
+    numerator = np.sum((x_clean - x_mean) * (y_clean - y_mean))
+    denominator = np.sum((x_clean - x_mean) ** 2)
     
-    # Calcular quantis teóricos e amostrais
-    n = len(data_clean)
-    theoretical_quantiles = np.sort(stats.norm.ppf((np.arange(1, n+1) - 0.5) / n))
-    sample_quantiles = np.sort(data_clean)
+    if denominator == 0:
+        return None, None, None
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=theoretical_quantiles,
-        y=sample_quantiles,
-        mode='markers',
-        name='Dados'
-    ))
+    slope = numerator / denominator
+    intercept = y_mean - slope * x_mean
     
-    # Adicionar linha de referência
-    max_val = max(theoretical_quantiles.max(), sample_quantiles.max())
-    min_val = min(theoretical_quantiles.min(), sample_quantiles.min())
-    fig.add_trace(go.Scatter(
-        x=[min_val, max_val],
-        y=[min_val, max_val],
-        mode='lines',
-        name='Linha de Referência',
-        line=dict(color='red', dash='dash')
-    ))
+    # Calcular R²
+    y_pred = slope * x_clean + intercept
+    ss_res = np.sum((y_clean - y_pred) ** 2)
+    ss_tot = np.sum((y_clean - y_mean) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
     
-    fig.update_layout(
-        title="Gráfico Q-Q Simplificado",
-        xaxis_title="Quantis Teóricos",
-        yaxis_title="Quantis Amostrais"
-    )
-    
-    return fig
+    return slope, intercept, r_squared
 
 def main():
     st.title("📊 Dashboard de Utilidades - Análise Completa")
@@ -266,21 +242,20 @@ def main():
                 dist_col1, dist_col2 = st.columns(2)
                 
                 with dist_col1:
-                    # Teste de normalidade simplificado
-                    st.write("**Análise de Normalidade:**")
-                    stat, p_value = teste_normalidade_simplificado(dados_processados[coluna_analise].dropna())
-                    st.write(f"Estatística: {stat:.3f}")
-                    st.write(f"Valor-p aproximado: {p_value:.3f}")
-                    if p_value > 0.05:
-                        st.success("Distribuição aproximadamente normal")
-                    else:
-                        st.warning("Distribuição não normal")
-                    
-                    # Coeficientes
+                    # Coeficientes de forma
                     skewness = dados_processados[coluna_analise].skew()
                     kurtosis = dados_processados[coluna_analise].kurtosis()
+                    
+                    st.write("**Análise de Distribuição:**")
                     st.write(f"Assimetria: {skewness:.3f}")
                     st.write(f"Curtose: {kurtosis:.3f}")
+                    
+                    if abs(skewness) < 0.5:
+                        st.success("Distribuição aproximadamente simétrica")
+                    elif abs(skewness) < 1:
+                        st.warning("Distribuição moderadamente assimétrica")
+                    else:
+                        st.error("Distribuição fortemente assimétrica")
                 
                 with dist_col2:
                     # Histograma
@@ -354,52 +329,42 @@ def main():
                 eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
-                # Gráfico de dispersão com linha de tendência
+                # Gráfico de dispersão SEM trendline (que causa o erro)
                 fig = px.scatter(dados_processados, x=eixo_x, y=eixo_y, 
-                                title=f"{eixo_y} vs {eixo_x}",
-                                trendline="ols")
+                                title=f"{eixo_y} vs {eixo_x}")
                 
-                # Calcular estatísticas de regressão manualmente
-                x_vals = dados_processados[eixo_x].values
-                y_vals = dados_processados[eixo_y].values
+                # Calcular regressão linear manualmente
+                slope, intercept, r_squared = calcular_regressao_linear(
+                    dados_processados[eixo_x].values,
+                    dados_processados[eixo_y].values
+                )
                 
-                # Remover valores NaN
-                mask = ~np.isnan(x_vals) & ~np.isnan(y_vals)
-                x_vals = x_vals[mask]
-                y_vals = y_vals[mask]
-                
-                if len(x_vals) > 1:
-                    # Regressão linear manual
-                    n = len(x_vals)
-                    x_mean = np.mean(x_vals)
-                    y_mean = np.mean(y_vals)
+                # Adicionar linha de regressão manualmente se possível
+                if slope is not None and intercept is not None:
+                    x_range = np.linspace(dados_processados[eixo_x].min(), dados_processados[eixo_x].max(), 100)
+                    y_pred = slope * x_range + intercept
                     
-                    numerator = np.sum((x_vals - x_mean) * (y_vals - y_mean))
-                    denominator = np.sum((x_vals - x_mean) ** 2)
+                    fig.add_trace(go.Scatter(
+                        x=x_range,
+                        y=y_pred,
+                        mode='lines',
+                        name='Linha de Regressão',
+                        line=dict(color='red', width=2)
+                    ))
                     
-                    if denominator != 0:
-                        slope = numerator / denominator
-                        intercept = y_mean - slope * x_mean
-                        
-                        # Calcular R²
-                        y_pred = slope * x_vals + intercept
-                        ss_res = np.sum((y_vals - y_pred) ** 2)
-                        ss_tot = np.sum((y_vals - y_mean) ** 2)
-                        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-                        
-                        # Adicionar equação da reta
-                        equation = f"y = {slope:.2f}x + {intercept:.2f}"
-                        r2_text = f"R² = {r_squared:.3f}"
-                        
-                        fig.add_annotation(
-                            x=0.05, y=0.95,
-                            xref="paper", yref="paper",
-                            text=f"{equation}<br>{r2_text}",
-                            showarrow=False,
-                            bgcolor="white",
-                            bordercolor="black",
-                            borderwidth=1
-                        )
+                    # Adicionar equação da reta
+                    equation = f"y = {slope:.2f}x + {intercept:.2f}"
+                    r2_text = f"R² = {r_squared:.3f}"
+                    
+                    fig.add_annotation(
+                        x=0.05, y=0.95,
+                        xref="paper", yref="paper",
+                        text=f"{equation}<br>{r2_text}",
+                        showarrow=False,
+                        bgcolor="white",
+                        bordercolor="black",
+                        borderwidth=1
+                    )
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -407,7 +372,7 @@ def main():
                 correlacao = dados_processados[eixo_x].corr(dados_processados[eixo_y])
                 st.metric("Coeficiente de Correlação de Pearson", f"{correlacao:.3f}")
                 
-                if len(x_vals) > 1:
+                if r_squared is not None:
                     st.metric("Coeficiente de Determinação (R²)", f"{r_squared:.3f}")
                 
                 # Interpretação
