@@ -5,7 +5,6 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime
 import os
-from scipy import stats
 
 # Configuração da página
 st.set_page_config(page_title="Dashboard de Utilidades", layout="wide")
@@ -20,6 +19,23 @@ def carregar_dados(uploaded_file):
     except Exception as e:
         st.error(f"Erro ao carregar arquivo: {str(e)}")
         return None
+
+# Função para calcular intervalo de confiança sem scipy
+def calcular_intervalo_confianca(data, confidence=0.95):
+    """Calcula intervalo de confiança usando apenas numpy/pandas"""
+    n = len(data)
+    m = data.mean()
+    se = data.std() / np.sqrt(n)
+    # Usando aproximação normal para grandes amostras
+    h = 1.96 * se  # 1.96 para 95% de confiança
+    return m - h, m + h
+
+# Função para teste t simplificado
+def teste_t_simplificado(data):
+    """Teste t simplificado sem scipy"""
+    t_stat = data.mean() / (data.std() / np.sqrt(len(data)))
+    # aproximação do valor-p para grandes amostras
+    return t_stat
 
 def main():
     st.title("📊 Dashboard de Utilidades - Análise Completa")
@@ -89,9 +105,9 @@ def main():
         if colunas_data and colunas_numericas:
             col1, col2 = st.columns(2)
             with col1:
-                coluna_data = st.selectbox("Coluna de Data:", colunas_data)
+                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data")
             with col2:
-                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas)
+                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_valor")
             
             if coluna_data and coluna_valor:
                 fig = px.line(dados, x=coluna_data, y=coluna_valor, 
@@ -109,7 +125,8 @@ def main():
                 with col3:
                     st.metric("Média", f"{dados[coluna_valor].mean():.2f}")
                 with col4:
-                    st.metric("Tendência", "↗️" if dados[coluna_valor].iloc[-1] > dados[coluna_valor].iloc[0] else "↘️")
+                    crescimento = ((dados[coluna_valor].iloc[-1] - dados[coluna_valor].iloc[0]) / dados[coluna_valor].iloc[0] * 100) if dados[coluna_valor].iloc[0] != 0 else 0
+                    st.metric("Crescimento", f"{crescimento:.1f}%")
         else:
             st.warning("❌ Dados insuficientes para análise temporal")
 
@@ -118,7 +135,7 @@ def main():
         
         colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
         if colunas_numericas:
-            coluna_selecionada = st.selectbox("Selecione a coluna:", colunas_numericas)
+            coluna_selecionada = st.selectbox("Selecione a coluna:", colunas_numericas, key="stats_col")
             
             if coluna_selecionada:
                 stats = dados[coluna_selecionada].describe()
@@ -132,7 +149,8 @@ def main():
                 with col3:
                     st.metric("Desvio Padrão", f"{stats['std']:.2f}")
                 with col4:
-                    st.metric("Coef. Variação", f"{(stats['std']/stats['mean'])*100:.1f}%")
+                    cv = (stats['std']/stats['mean'])*100 if stats['mean'] != 0 else 0
+                    st.metric("Coef. Variação", f"{cv:.1f}%")
                 
                 # Métricas secundárias
                 col5, col6, col7, col8 = st.columns(4)
@@ -199,7 +217,7 @@ def main():
         
         colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
         if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para análise de distribuição:", colunas_numericas)
+            coluna_selecionada = st.selectbox("Coluna para análise de distribuição:", colunas_numericas, key="dist_col")
             
             if coluna_selecionada:
                 col1, col2 = st.columns(2)
@@ -218,24 +236,32 @@ def main():
                                              nbins=30, histnorm='probability density')
                     st.plotly_chart(fig_density, use_container_width=True)
                 
-                # Teste de normalidade
-                st.subheader("📋 Teste de Normalidade")
-                from scipy.stats import shapiro
-                
+                # Análise de normalidade simplificada
+                st.subheader("📋 Análise de Normalidade")
                 data_clean = dados[coluna_selecionada].dropna()
-                if len(data_clean) > 3:
-                    stat, p_value = shapiro(data_clean)
-                    
-                    col3, col4 = st.columns(2)
-                    with col3:
-                        st.metric("Estatística Shapiro-Wilk", f"{stat:.3f}")
-                    with col4:
-                        st.metric("Valor-p", f"{p_value:.3f}")
-                        
-                    if p_value > 0.05:
-                        st.success("✅ Distribuição normal (p > 0.05)")
+                
+                col3, col4 = st.columns(2)
+                with col3:
+                    # Coeficiente de assimetria
+                    skew = data_clean.skew()
+                    st.metric("Coef. Assimetria", f"{skew:.3f}")
+                    if abs(skew) < 0.5:
+                        st.success("Distribuição aproximadamente simétrica")
+                    elif abs(skew) < 1:
+                        st.warning("Distribuição moderadamente assimétrica")
                     else:
-                        st.warning("❌ Distribuição não normal (p ≤ 0.05)")
+                        st.error("Distribuição fortemente assimétrica")
+                
+                with col4:
+                    # Coeficiente de curtose
+                    kurt = data_clean.kurtosis()
+                    st.metric("Coef. Curtose", f"{kurt:.3f}")
+                    if abs(kurt) < 0.5:
+                        st.success("Curtose próxima da normal")
+                    elif abs(kurt) < 1:
+                        st.warning("Curtose moderadamente diferente da normal")
+                    else:
+                        st.error("Curtose muito diferente da normal")
         else:
             st.warning("❌ Nenhuma coluna numérica encontrada")
 
@@ -247,19 +273,26 @@ def main():
         if len(colunas_numericas) >= 2:
             col1, col2 = st.columns(2)
             with col1:
-                eixo_x = st.selectbox("Eixo X:", colunas_numericas)
+                eixo_x = st.selectbox("Eixo X:", colunas_numericas, key="scatter_x")
             with col2:
-                eixo_y = st.selectbox("Eixo Y:", colunas_numericas)
+                eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
                 fig = px.scatter(dados, x=eixo_x, y=eixo_y, 
-                                title=f"{eixo_y} vs {eixo_x}",
-                                trendline="ols")
+                                title=f"{eixo_y} vs {eixo_x}")
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Cálculo da correlação
                 correlacao = dados[eixo_x].corr(dados[eixo_y])
                 st.metric("Coeficiente de Correlação", f"{correlacao:.3f}")
+                
+                # Interpretação da correlação
+                if abs(correlacao) > 0.7:
+                    st.success("Correlação forte")
+                elif abs(correlacao) > 0.3:
+                    st.info("Correlação moderada")
+                else:
+                    st.warning("Correlação fraca")
         else:
             st.warning("❌ Número insuficiente de colunas numéricas")
 
@@ -268,7 +301,7 @@ def main():
         
         colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
         if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para boxplot:", colunas_numericas)
+            coluna_selecionada = st.selectbox("Coluna para boxplot:", colunas_numericas, key="boxplot_col")
             
             if coluna_selecionada:
                 fig = px.box(dados, y=coluna_selecionada, 
@@ -279,10 +312,16 @@ def main():
                 Q1 = dados[coluna_selecionada].quantile(0.25)
                 Q3 = dados[coluna_selecionada].quantile(0.75)
                 IQR = Q3 - Q1
-                outliers = dados[(dados[coluna_selecionada] < (Q1 - 1.5 * IQR)) | 
-                                (dados[coluna_selecionada] > (Q3 + 1.5 * IQR))]
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outliers = dados[(dados[coluna_selecionada] < lower_bound) | 
+                                (dados[coluna_selecionada] > upper_bound)]
                 
-                st.metric("Número de Outliers", len(outliers))
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Número de Outliers", len(outliers))
+                with col2:
+                    st.metric("% Outliers", f"{(len(outliers)/len(dados))*100:.1f}%")
         else:
             st.warning("❌ Nenhuma coluna numérica encontrada")
 
@@ -291,7 +330,7 @@ def main():
         
         colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
         if colunas_numericas:
-            coluna_selecionada = st.selectbox("Coluna para análise avançada:", colunas_numericas)
+            coluna_selecionada = st.selectbox("Coluna para análise avançada:", colunas_numericas, key="advanced_col")
             
             if coluna_selecionada:
                 data = dados[coluna_selecionada].dropna()
@@ -307,25 +346,22 @@ def main():
                 with col4:
                     st.metric("Intervalo", f"{data.max() - data.min():.2f}")
                 
-                # Testes estatísticos
-                st.subheader("📊 Testes Estatísticos")
+                # Intervalo de confiança
+                st.subheader("📊 Intervalo de Confiança 95%")
+                lower, upper = calcular_intervalo_confianca(data)
+                st.metric("Média ± IC 95%", f"{data.mean():.2f} ± {(upper-lower)/2:.2f}")
+                st.write(f"**Intervalo:** [{lower:.2f}, {upper:.2f}]")
                 
-                # Teste t para média ≠ 0
-                t_stat, p_value = stats.ttest_1samp(data, 0)
-                col5, col6 = st.columns(2)
-                with col5:
-                    st.metric("Estatística t", f"{t_stat:.3f}")
-                with col6:
-                    st.metric("Valor-p (t-test)", f"{p_value:.3f}")
+                # Teste t simplificado
+                st.subheader("📋 Teste t Simplificado")
+                t_stat = teste_t_simplificado(data)
+                st.metric("Estatística t", f"{t_stat:.3f}")
                 
-                # Intervalo de confiança 95%
-                confidence = 0.95
-                n = len(data)
-                m = data.mean()
-                se = data.std() / np.sqrt(n)
-                h = se * stats.t.ppf((1 + confidence) / 2., n-1)
-                
-                st.metric("IC 95%", f"[{m-h:.2f}, {m+h:.2f}]")
+                # Interpretação do teste t
+                if abs(t_stat) > 1.96:
+                    st.success("Resultado estatisticamente significativo (|t| > 1.96)")
+                else:
+                    st.warning("Resultado não estatisticamente significativo (|t| ≤ 1.96)")
 
     # ===== DOWNLOAD DOS DADOS =====
     st.header("💾 Exportar Resultados")
