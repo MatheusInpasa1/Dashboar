@@ -2,9 +2,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime
-import os
+import scipy.stats as stats
+from sklearn.linear_model import LinearRegression
 
 # Configuração da página
 st.set_page_config(page_title="Dashboard de Utilidades", layout="wide")
@@ -20,16 +22,25 @@ def carregar_dados(uploaded_file):
         st.error(f"Erro ao carregar arquivo: {str(e)}")
         return None
 
-# Função inteligente para converter para data
+# Função para converter para data
 def converter_para_data(coluna):
-    """Tenta converter uma coluna para datetime de várias formas"""
+    """Tenta converter uma coluna para datetime"""
     try:
         return pd.to_datetime(coluna, dayfirst=True, errors='coerce')
     except:
         return coluna
 
+# Função para detectar outliers
+def detectar_outliers(dados, coluna):
+    Q1 = dados[coluna].quantile(0.25)
+    Q3 = dados[coluna].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return dados[(dados[coluna] < lower_bound) | (dados[coluna] > upper_bound)]
+
 def main():
-    st.title("📊 Dashboard de Utilidades - Análise Estatística")
+    st.title("📊 Dashboard de Utilidades - Análise Completa")
     
     # Sidebar para upload
     with st.sidebar:
@@ -53,212 +64,305 @@ def main():
         st.error("❌ Falha ao carregar os dados.")
         st.stop()
 
-    # ===== DADOS CARREGADOS COM SUCESSO =====
-    st.success(f"✅ Dados carregados com sucesso! ({len(dados)} registros, {len(dados.columns)} colunas)")
-
-    # ===== DETECÇÃO AUTOMÁTICA DE COLUNAS =====
-    colunas_numericas = dados.select_dtypes(include=[np.number]).columns.tolist()
+    # Processar dados
+    dados_processados = dados.copy()
+    colunas_numericas = dados_processados.select_dtypes(include=[np.number]).columns.tolist()
     
     # Detectar colunas de data
     colunas_data = []
-    for col in dados.columns:
+    for col in dados_processados.columns:
         if any(palavra in col.lower() for palavra in ['data', 'date', 'dia', 'time']):
             colunas_data.append(col)
+            dados_processados[col] = converter_para_data(dados_processados[col])
 
-    # ===== ANÁLISE DE SÉRIES TEMPORAIS =====
-    if colunas_data and colunas_numericas:
+    # Sidebar para filtros globais
+    with st.sidebar:
+        st.header("🎛️ Filtros Globais")
+        
+        # Filtro de período
+        if colunas_data:
+            coluna_data_filtro = st.selectbox("Coluna de data para filtro:", colunas_data)
+            if pd.api.types.is_datetime64_any_dtype(dados_processados[coluna_data_filtro]):
+                min_date = dados_processados[coluna_data_filtro].min()
+                max_date = dados_processados[coluna_data_filtro].max()
+                
+                date_range = st.date_input(
+                    "Selecione o período:",
+                    value=(min_date, max_date),
+                    min_value=min_date,
+                    max_value=max_date
+                )
+                
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                    dados_processados = dados_processados[
+                        (dados_processados[coluna_data_filtro] >= pd.Timestamp(start_date)) &
+                        (dados_processados[coluna_data_filtro] <= pd.Timestamp(end_date))
+                    ]
+        
+        # Filtro de outliers
+        st.subheader("🔍 Gerenciamento de Outliers")
+        remover_outliers = st.checkbox("Remover outliers automaticamente")
+        
+        if remover_outliers and colunas_numericas:
+            coluna_outliers = st.selectbox("Coluna para análise de outliers:", colunas_numericas)
+            if coluna_outliers:
+                outliers = detectar_outliers(dados_processados, coluna_outliers)
+                st.info(f"📊 {len(outliers)} outliers detectados")
+                
+                if st.button("Remover outliers"):
+                    dados_processados = dados_processados[~dados_processados.index.isin(outliers.index)]
+                    st.success("Outliers removidos!")
+
+    # Abas principais
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📈 Análise de Séries Temporais", 
+        "📊 Estatística Detalhada", 
+        "🔥 Análise de Correlações", 
+        "🔍 Gráficos de Dispersão"
+    ])
+
+    with tab1:
         st.header("📈 Análise de Séries Temporais")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            coluna_data = st.selectbox("Coluna de Data:", colunas_data)
-        with col2:
-            coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas)
-        
-        if coluna_data and coluna_valor:
-            # Converter data
-            dados_temp = dados.copy()
-            dados_temp['Data_Convertida'] = converter_para_data(dados_temp[coluna_data])
+        if colunas_data and colunas_numericas:
+            col1, col2, col3 = st.columns([2, 2, 1])
             
-            if pd.api.types.is_datetime64_any_dtype(dados_temp['Data_Convertida']):
-                dados_temp = dados_temp.sort_values(by='Data_Convertida')
+            with col1:
+                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data")
+            with col2:
+                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_valor")
+            with col3:
+                tipo_grafico = st.selectbox("Tipo de Gráfico:", 
+                                           ["Linha", "Área", "Barra", "Scatter", "Boxplot Temporal"])
+            
+            if coluna_data and coluna_valor:
+                dados_temp = dados_processados.sort_values(by=coluna_data)
                 
-                # Gráfico de linha
-                fig = px.line(dados_temp, x='Data_Convertida', y=coluna_valor, 
-                             title=f"Evolução Temporal de {coluna_valor}")
+                # Criar gráfico baseado no tipo selecionado
+                if tipo_grafico == "Linha":
+                    fig = px.line(dados_temp, x=coluna_data, y=coluna_valor, 
+                                 title=f"Evolução Temporal de {coluna_valor}")
+                elif tipo_grafico == "Área":
+                    fig = px.area(dados_temp, x=coluna_data, y=coluna_valor,
+                                 title=f"Evolução Temporal de {coluna_valor}")
+                elif tipo_grafico == "Barra":
+                    fig = px.bar(dados_temp, x=coluna_data, y=coluna_valor,
+                                title=f"Evolução Temporal de {coluna_valor}")
+                elif tipo_grafico == "Scatter":
+                    fig = px.scatter(dados_temp, x=coluna_data, y=coluna_valor,
+                                    title=f"Relação Temporal de {coluna_valor}")
+                else:  # Boxplot Temporal
+                    dados_temp['Periodo'] = dados_temp[coluna_data].dt.to_period('M').astype(str)
+                    fig = px.box(dados_temp, x='Periodo', y=coluna_valor,
+                                title=f"Distribuição Mensal de {coluna_valor}")
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # ===== ESTATÍSTICAS DETALHADAS =====
-                st.subheader("📊 Estatísticas Detalhadas")
-                
-                # Métricas básicas
+                # Estatísticas temporais
+                st.subheader("📊 Estatísticas Temporais")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Média", f"{dados_temp[coluna_valor].mean():.2f}")
-                with col2:
                     st.metric("Mediana", f"{dados_temp[coluna_valor].median():.2f}")
-                with col3:
-                    st.metric("Moda", f"{dados_temp[coluna_valor].mode().iloc[0] if not dados_temp[coluna_valor].mode().empty else 'N/A'}")
-                with col4:
+                with col2:
                     st.metric("Desvio Padrão", f"{dados_temp[coluna_valor].std():.2f}")
-                
-                # Quartis e intervalos
-                Q1 = dados_temp[coluna_valor].quantile(0.25)
-                Q3 = dados_temp[coluna_valor].quantile(0.75)
-                IQR = Q3 - Q1
-                
-                col5, col6, col7, col8 = st.columns(4)
-                with col5:
+                    st.metric("Variância", f"{dados_temp[coluna_valor].var():.2f}")
+                with col3:
+                    st.metric("Mínimo", f"{dados_temp[coluna_valor].min():.2f}")
+                    st.metric("Máximo", f"{dados_temp[coluna_valor].max():.2f}")
+                with col4:
+                    Q1 = dados_temp[coluna_valor].quantile(0.25)
+                    Q3 = dados_temp[coluna_valor].quantile(0.75)
                     st.metric("Q1 (25%)", f"{Q1:.2f}")
-                with col6:
                     st.metric("Q3 (75%)", f"{Q3:.2f}")
-                with col7:
-                    st.metric("IQR", f"{IQR:.2f}")
-                with col8:
-                    st.metric("Amplitude", f"{dados_temp[coluna_valor].max() - dados_temp[coluna_valor].min():.2f}")
-                
-                # Tendência e crescimento
-                if len(dados_temp) > 1:
-                    crescimento = ((dados_temp[coluna_valor].iloc[-1] - dados_temp[coluna_valor].iloc[0]) / dados_temp[coluna_valor].iloc[0] * 100) if dados_temp[coluna_valor].iloc[0] != 0 else 0
-                    
-                    col9, col10 = st.columns(2)
-                    with col9:
-                        st.metric("Crescimento Total", f"{crescimento:.1f}%")
-                    with col10:
-                        # Tendência linear simples
-                        x = np.arange(len(dados_temp))
-                        y = dados_temp[coluna_valor].values
-                        coef = np.polyfit(x, y, 1)[0]
-                        tendencia = "↗️ Alta" if coef > 0 else "↘️ Baixa" if coef < 0 else "➡️ Estável"
-                        st.metric("Tendência", tendencia)
-                
-                # Informações temporais
-                st.subheader("📅 Informações Temporais")
-                col11, col12, col13, col14 = st.columns(4)
-                with col11:
-                    st.metric("Primeira Data", dados_temp['Data_Convertida'].min().strftime('%d/%m/%Y'))
-                with col12:
-                    st.metric("Última Data", dados_temp['Data_Convertida'].max().strftime('%d/%m/%Y'))
-                with col13:
-                    st.metric("Período", f"{(dados_temp['Data_Convertida'].max() - dados_temp['Data_Convertida'].min()).days} dias")
-                with col14:
-                    st.metric("Dados por Dia", f"{len(dados_temp)/max(1, (dados_temp['Data_Convertida'].max() - dados_temp['Data_Convertida'].min()).days):.1f}")
-            
-            else:
-                st.warning("Não foi possível converter as datas. Mostrando análise sem ordenação temporal.")
-                fig = px.line(dados_temp, x=coluna_data, y=coluna_valor, 
-                             title=f"Evolução de {coluna_valor}")
-                st.plotly_chart(fig, use_container_width=True)
 
-    # ===== ANÁLISE ESTATÍSTICA GERAL =====
-    st.header("📋 Análise Estatística Geral")
-    
-    if colunas_numericas:
-        coluna_analise = st.selectbox("Selecione a coluna para análise detalhada:", colunas_numericas)
+    with tab2:
+        st.header("📊 Estatística Detalhada")
         
-        if coluna_analise:
-            # Estatísticas descritivas
-            stats = dados[coluna_analise].describe()
+        if colunas_numericas:
+            coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas, key="stats_col")
             
-            st.subheader("Estatísticas Descritivas")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Média", f"{stats['mean']:.2f}")
-                st.metric("Moda", f"{dados[coluna_analise].mode().iloc[0] if not dados[coluna_analise].mode().empty else 'N/A'}")
-            with col2:
-                st.metric("Mediana", f"{stats['50%']:.2f}")
-                st.metric("Desvio Padrão", f"{stats['std']:.2f}")
-            with col3:
-                st.metric("Mínimo", f"{stats['min']:.2f}")
-                st.metric("Máximo", f"{stats['max']:.2f}")
-            with col4:
-                st.metric("Q1 (25%)", f"{stats['25%']:.2f}")
-                st.metric("Q3 (75%)", f"{stats['75%']:.2f}")
-            
-            # Visualizações
-            st.subheader("Visualizações")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig_hist = px.histogram(dados, x=coluna_analise, 
+            if coluna_analise:
+                # Estatísticas básicas
+                st.subheader("Estatísticas Descritivas")
+                stats_data = dados_processados[coluna_analise].describe()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                metrics = [
+                    ("Média", stats_data['mean']),
+                    ("Mediana", stats_data['50%']),
+                    ("Moda", dados_processados[coluna_analise].mode().iloc[0] if not dados_processados[coluna_analise].mode().empty else np.nan),
+                    ("Desvio Padrão", stats_data['std']),
+                    ("Variância", stats_data['std']**2),
+                    ("Coef. Variação", (stats_data['std']/stats_data['mean'])*100 if stats_data['mean'] != 0 else 0),
+                    ("Mínimo", stats_data['min']),
+                    ("Máximo", stats_data['max']),
+                    ("Amplitude", stats_data['max'] - stats_data['min']),
+                    ("Q1 (25%)", stats_data['25%']),
+                    ("Q3 (75%)", stats_data['75%']),
+                    ("IQR", stats_data['75%'] - stats_data['25%'])
+                ]
+                
+                for i, (name, value) in enumerate(metrics):
+                    with [col1, col2, col3, col4][i % 4]:
+                        if not np.isnan(value):
+                            st.metric(name, f"{value:.2f}" if isinstance(value, (int, float)) else str(value))
+                
+                # Análise de distribuição
+                st.subheader("📈 Análise de Distribuição")
+                
+                dist_col1, dist_col2 = st.columns(2)
+                
+                with dist_col1:
+                    # Teste de normalidade
+                    st.write("**Teste de Normalidade (Shapiro-Wilk):**")
+                    stat, p_value = stats.shapiro(dados_processados[coluna_analise].dropna())
+                    st.write(f"Estatística: {stat:.3f}")
+                    st.write(f"Valor-p: {p_value:.3f}")
+                    if p_value > 0.05:
+                        st.success("Distribuição normal (p > 0.05)")
+                    else:
+                        st.warning("Distribuição não normal (p ≤ 0.05)")
+                
+                with dist_col2:
+                    # Histograma com distribuições
+                    fig = px.histogram(dados_processados, x=coluna_analise, 
                                       title=f"Distribuição de {coluna_analise}",
-                                      nbins=30)
-                st.plotly_chart(fig_hist, use_container_width=True)
-            
-            with col2:
-                fig_box = px.box(dados, y=coluna_analise, 
-                               title=f"Boxplot de {coluna_analise}")
-                st.plotly_chart(fig_box, use_container_width=True)
-            
-            # Análise de outliers
-            Q1 = dados[coluna_analise].quantile(0.25)
-            Q3 = dados[coluna_analise].quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            outliers = dados[(dados[coluna_analise] < lower_bound) | (dados[coluna_analise] > upper_bound)]
-            
-            st.metric("Número de Outliers", len(outliers))
-            
-            if len(outliers) > 0:
-                with st.expander("Ver Outliers"):
-                    st.dataframe(outliers[[coluna_analise]])
+                                      nbins=30, marginal="box")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Ajuste de distribuições
+                st.subheader("🎯 Ajuste de Distribuições")
+                dist_types = ['Normal', 'Exponencial', 'Logística', 'Gamma', 'Beta', 'Weibull']
+                selected_dist = st.selectbox("Selecione o tipo de distribuição para ajuste:", dist_types)
+                
+                # Gráfico Q-Q
+                fig_qq = go.Figure()
+                fig_qq.add_trace(go.Scatter(
+                    x=stats.probplot(dados_processados[coluna_analise].dropna(), dist="norm")[0][0],
+                    y=stats.probplot(dados_processados[coluna_analise].dropna(), dist="norm")[0][1],
+                    mode='markers',
+                    name='Dados'
+                ))
+                fig_qq.update_layout(title=f"Gráfico Q-Q - {coluna_analise}")
+                st.plotly_chart(fig_qq, use_container_width=True)
 
-    # ===== ANÁLISE DE CORRELAÇÕES =====
-    if len(colunas_numericas) > 1:
+    with tab3:
         st.header("🔥 Análise de Correlações")
         
-        corr_matrix = dados[colunas_numericas].corr()
-        fig = px.imshow(corr_matrix, 
-                       title="Matriz de Correlação",
-                       color_continuous_scale="RdBu_r",
-                       aspect="auto")
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Top correlações
-        st.subheader("Correlações mais Fortes")
-        correlations = []
-        for i in range(len(corr_matrix.columns)):
-            for j in range(i+1, len(corr_matrix.columns)):
-                correlations.append({
-                    'Variável 1': corr_matrix.columns[i],
-                    'Variável 2': corr_matrix.columns[j],
-                    'Correlação': corr_matrix.iloc[i, j]
-                })
-        
-        df_corr = pd.DataFrame(correlations)
-        df_corr['Abs_Correlation'] = df_corr['Correlação'].abs()
-        top_correlations = df_corr.nlargest(5, 'Abs_Correlation')
-        
-        for _, row in top_correlations.iterrows():
-            st.write(f"**{row['Variável 1']}** ↔ **{row['Variável 2']}**: {row['Correlação']:.3f}")
-
-    # ===== GRÁFICOS DE DISPERSÃO =====
-    if len(colunas_numericas) >= 2:
-        st.header("🔍 Gráficos de Dispersão")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            eixo_x = st.selectbox("Eixo X:", colunas_numericas)
-        with col2:
-            eixo_y = st.selectbox("Eixo Y:", colunas_numericas)
-        
-        if eixo_x and eixo_y:
-            fig = px.scatter(dados, x=eixo_x, y=eixo_y, 
-                            title=f"{eixo_y} vs {eixo_x}")
-            st.plotly_chart(fig, use_container_width=True)
+        if len(colunas_numericas) > 1:
+            # Selecionar variáveis para correlação
+            st.subheader("Seleção de Variáveis")
+            variaveis_selecionadas = st.multiselect(
+                "Selecione as variáveis para análise de correlação:",
+                options=colunas_numericas,
+                default=colunas_numericas[:min(5, len(colunas_numericas))]
+            )
             
-            correlacao = dados[eixo_x].corr(dados[eixo_y])
-            st.metric("Coeficiente de Correlação", f"{correlacao:.3f}")
+            if len(variaveis_selecionadas) > 1:
+                # Matriz de correlação
+                corr_matrix = dados_processados[variaveis_selecionadas].corr()
+                
+                fig = px.imshow(corr_matrix, 
+                               title="Matriz de Correlação",
+                               color_continuous_scale="RdBu_r",
+                               aspect="auto",
+                               text_auto=True)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Top correlações
+                st.subheader("🔝 Top Correlações")
+                
+                correlations = []
+                for i in range(len(corr_matrix.columns)):
+                    for j in range(i+1, len(corr_matrix.columns)):
+                        correlations.append({
+                            'Variável 1': corr_matrix.columns[i],
+                            'Variável 2': corr_matrix.columns[j],
+                            'Correlação': corr_matrix.iloc[i, j]
+                        })
+                
+                df_corr = pd.DataFrame(correlations)
+                df_corr['Abs_Correlation'] = df_corr['Correlação'].abs()
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**10 Maiores Correlações:**")
+                    top_correlations = df_corr.nlargest(10, 'Abs_Correlation')
+                    for _, row in top_correlations.iterrows():
+                        corr_color = "🟢" if row['Correlação'] > 0 else "🔴"
+                        st.write(f"{corr_color} {row['Variável 1']} ↔ {row['Variável 2']}: **{row['Correlação']:.3f}**")
+                
+                with col2:
+                    st.write("**10 Menores Correlações:**")
+                    bottom_correlations = df_corr.nsmallest(10, 'Abs_Correlation')
+                    for _, row in bottom_correlations.iterrows():
+                        corr_color = "🟢" if row['Correlação'] > 0 else "🔴"
+                        st.write(f"{corr_color} {row['Variável 1']} ↔ {row['Variável 2']}: **{row['Correlação']:.3f}**")
 
-    # ===== DOWNLOAD DOS DADOS =====
-    st.header("💾 Exportar Resultados")
-    
-    csv = dados.to_csv(index=False)
-    st.download_button(
-        label="📥 Baixar dados completos (CSV)",
+    with tab4:
+        st.header("🔍 Gráficos de Dispersão com Regressão")
+        
+        if len(colunas_numericas) >= 2:
+            col1, col2 = st.columns(2)
+            with col1:
+                eixo_x = st.selectbox("Eixo X:", colunas_numericas, key="scatter_x")
+            with col2:
+                eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
+            
+            if eixo_x and eixo_y:
+                # Gráfico de dispersão com linha de tendência
+                fig = px.scatter(dados_processados, x=eixo_x, y=eixo_y, 
+                                title=f"{eixo_y} vs {eixo_x}",
+                                trendline="ols")
+                
+                # Calcular estatísticas de regressão
+                x_vals = dados_processados[eixo_x].values.reshape(-1, 1)
+                y_vals = dados_processados[eixo_y].values
+                model = LinearRegression()
+                model.fit(x_vals, y_vals)
+                r_squared = model.score(x_vals, y_vals)
+                
+                # Adicionar equação da reta
+                slope = model.coef_[0]
+                intercept = model.intercept_
+                equation = f"y = {slope:.2f}x + {intercept:.2f}"
+                r2_text = f"R² = {r_squared:.3f}"
+                
+                fig.add_annotation(
+                    x=0.05, y=0.95,
+                    xref="paper", yref="paper",
+                    text=f"{equation}<br>{r2_text}",
+                    showarrow=False,
+                    bgcolor="white",
+                    bordercolor="black",
+                    borderwidth=1
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Estatísticas de correlação
+                correlacao = dados_processados[eixo_x].corr(dados_processados[eixo_y])
+                st.metric("Coeficiente de Correlação de Pearson", f"{correlacao:.3f}")
+                st.metric("Coeficiente de Determinação (R²)", f"{r_squared:.3f}")
+                
+                # Interpretação
+                if abs(correlacao) > 0.7:
+                    st.success("Correlação forte")
+                elif abs(correlacao) > 0.3:
+                    st.info("Correlação moderada")
+                else:
+                    st.warning("Correlação fraca")
+
+    # Download dos dados processados
+    st.sidebar.header("💾 Exportar Dados")
+    csv = dados_processados.to_csv(index=False)
+    st.sidebar.download_button(
+        label="📥 Baixar dados processados",
         data=csv,
-        file_name="dados_analise.csv",
+        file_name="dados_processados.csv",
         mime="text/csv"
     )
 
