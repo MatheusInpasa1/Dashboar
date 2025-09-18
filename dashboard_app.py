@@ -36,7 +36,8 @@ def detectar_outliers(dados, coluna):
     IQR = Q3 - Q1
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
-    return dados[(dados[coluna] < lower_bound) | (dados[coluna] > upper_bound)]
+    outliers_mask = (dados[coluna] < lower_bound) | (dados[coluna] > upper_bound)
+    return dados[outliers_mask], outliers_mask
 
 # Função para calcular regressão linear manualmente
 def calcular_regressao_linear(x, y):
@@ -70,41 +71,47 @@ def calcular_regressao_linear(x, y):
     
     return slope, intercept, r_squared
 
-# Função para criar gráfico Q-Q simplificado
-def criar_qq_plot(data):
-    """Cria gráfico Q-Q simplificado"""
+# Função para criar gráfico Q-Q correto
+def criar_qq_plot_correto(data):
+    """Cria gráfico Q-Q correto passando pelo meio dos pontos"""
     data_clean = data.dropna()
     if len(data_clean) < 2:
         return go.Figure()
     
-    # Calcular quantis
+    # Calcular quantis teóricos normais
     n = len(data_clean)
-    theoretical_quantiles = np.sort(np.random.normal(0, 1, n))  # Quantis teóricos aproximados
+    theoretical_quantiles = np.sort(np.random.normal(np.mean(data_clean), np.std(data_clean), n))
     sample_quantiles = np.sort(data_clean)
     
+    # Calcular linha de tendência para o Q-Q plot
+    z = np.polyfit(theoretical_quantiles, sample_quantiles, 1)
+    p = np.poly1d(z)
+    
     fig = go.Figure()
+    
+    # Adicionar pontos
     fig.add_trace(go.Scatter(
         x=theoretical_quantiles,
         y=sample_quantiles,
         mode='markers',
-        name='Dados'
+        name='Dados',
+        marker=dict(color='blue', size=6)
     ))
     
-    # Adicionar linha de referência
-    max_val = max(theoretical_quantiles.max(), sample_quantiles.max())
-    min_val = min(theoretical_quantiles.min(), sample_quantiles.min())
+    # Adicionar linha de tendência que passa pelo meio dos pontos
     fig.add_trace(go.Scatter(
-        x=[min_val, max_val],
-        y=[min_val, max_val],
+        x=theoretical_quantiles,
+        y=p(theoretical_quantiles),
         mode='lines',
-        name='Linha de Referência',
-        line=dict(color='red', dash='dash')
+        name='Linha de Tendência',
+        line=dict(color='red', width=2)
     ))
     
     fig.update_layout(
-        title="Gráfico Q-Q (Normalidade)",
+        title="Gráfico Q-Q (Análise de Normalidade)",
         xaxis_title="Quantis Teóricos",
-        yaxis_title="Quantis Amostrais"
+        yaxis_title="Quantis Amostrais",
+        showlegend=True
     )
     
     return fig
@@ -170,19 +177,30 @@ def main():
                         (dados_processados[coluna_data_filtro] <= pd.Timestamp(end_date))
                     ]
         
-        # Filtro de outliers
+        # Filtro de outliers - AGORA FUNCIONAL
         st.subheader("🔍 Gerenciamento de Outliers")
-        remover_outliers = st.checkbox("Remover outliers automaticamente")
         
-        if remover_outliers and colunas_numericas:
-            coluna_outliers = st.selectbox("Coluna para análise de outliers:", colunas_numericas)
+        if colunas_numericas:
+            coluna_outliers = st.selectbox("Selecione a coluna para análise de outliers:", colunas_numericas)
+            
             if coluna_outliers:
-                outliers = detectar_outliers(dados_processados, coluna_outliers)
-                st.info(f"📊 {len(outliers)} outliers detectados")
+                # Detectar outliers
+                outliers_df, outliers_mask = detectar_outliers(dados_processados, coluna_outliers)
+                st.info(f"📊 {len(outliers_df)} outliers detectados na coluna '{coluna_outliers}'")
                 
-                if st.button("Remover outliers"):
-                    dados_processados = dados_processados[~dados_processados.index.isin(outliers.index)]
-                    st.success("Outliers removidos!")
+                # Mostrar outliers
+                if len(outliers_df) > 0:
+                    with st.expander("📋 Visualizar Outliers Detectados"):
+                        st.dataframe(outliers_df[[coluna_outliers]].style.format({
+                            coluna_outliers: '{:.2f}'
+                        }))
+                
+                # Opção para remover outliers
+                remover_outliers = st.checkbox("Remover outliers desta coluna")
+                
+                if remover_outliers:
+                    dados_processados = dados_processados[~outliers_mask]
+                    st.success(f"✅ {len(outliers_df)} outliers removidos da coluna '{coluna_outliers}'")
 
     # Abas principais
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -343,19 +361,19 @@ def main():
                                       nbins=30, marginal="box")
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # Gráfico Q-Q
-                st.subheader("📊 Gráfico Q-Q (Normalidade)")
-                fig_qq = criar_qq_plot(dados_processados[coluna_analise])
+                # Gráfico Q-Q CORRIGIDO
+                st.subheader("📊 Gráfico Q-Q (Análise de Normalidade)")
+                fig_qq = criar_qq_plot_correto(dados_processados[coluna_analise])
                 st.plotly_chart(fig_qq, use_container_width=True)
                 
                 # Análise de outliers
                 st.subheader("🔍 Análise de Outliers")
-                outliers = detectar_outliers(dados_processados, coluna_analise)
-                st.metric("Número de Outliers", len(outliers))
+                outliers_df, outliers_mask = detectar_outliers(dados_processados, coluna_analise)
+                st.metric("Número de Outliers", len(outliers_df))
                 
-                if len(outliers) > 0:
+                if len(outliers_df) > 0:
                     with st.expander("📋 Detalhes dos Outliers"):
-                        st.dataframe(outliers[[coluna_analise]].style.format({
+                        st.dataframe(outliers_df[[coluna_analise]].style.format({
                             coluna_analise: '{:.2f}'
                         }))
 
@@ -431,10 +449,9 @@ def main():
                 eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
-                # Gráfico de dispersão SEM trendline (que causa o erro)
+                # Gráfico de dispersão
                 fig = px.scatter(dados_processados, x=eixo_x, y=eixo_y, 
-                                title=f"{eixo_y} vs {eixo_x}",
-                                trendline=None)  # Explicitamente removido
+                                title=f"{eixo_y} vs {eixo_x}")
                 
                 # Calcular regressão linear manualmente
                 slope, intercept, r_squared = calcular_regressao_linear(
@@ -452,21 +469,26 @@ def main():
                         y=y_pred,
                         mode='lines',
                         name='Linha de Regressão',
-                        line=dict(color='red', width=2)
+                        line=dict(color='red', width=3)
                     ))
                     
-                    # Adicionar equação da reta
-                    equation = f"y = {slope:.2f}x + {intercept:.2f}"
-                    r2_text = f"R² = {r_squared:.3f}"
+                    # Adicionar equação da reta BEM VISÍVEL
+                    equation = f"y = {slope:.4f}x + {intercept:.4f}"
+                    r2_text = f"R² = {r_squared:.4f}"
                     
                     fig.add_annotation(
-                        x=0.05, y=0.95,
-                        xref="paper", yref="paper",
-                        text=f"{equation}<br>{r2_text}",
+                        x=0.05,
+                        y=0.95,
+                        xref="paper",
+                        yref="paper",
+                        text=f"<b>{equation}<br>{r2_text}</b>",
                         showarrow=False,
+                        font=dict(size=14, color="black"),
                         bgcolor="white",
                         bordercolor="black",
-                        borderwidth=1
+                        borderwidth=2,
+                        borderpad=4,
+                        opacity=0.8
                     )
                 
                 st.plotly_chart(fig, use_container_width=True)
@@ -478,13 +500,19 @@ def main():
                 
                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                 with col_stat1:
-                    st.metric("Coeficiente de Correlação", f"{correlacao:.3f}")
+                    st.metric("Coeficiente de Correlação", f"{correlacao:.4f}")
                 with col_stat2:
                     if r_squared is not None:
-                        st.metric("Coeficiente de Determinação (R²)", f"{r_squared:.3f}")
+                        st.metric("Coeficiente de Determinação (R²)", f"{r_squared:.4f}")
                 with col_stat3:
                     if slope is not None:
-                        st.metric("Inclinação da Reta", f"{slope:.3f}")
+                        st.metric("Inclinação da Reta", f"{slope:.4f}")
+                
+                # Mostrar equação da reta em destaque
+                if slope is not None and intercept is not None:
+                    st.subheader("🧮 Equação da Reta de Regressão")
+                    st.info(f"**{equation}**")
+                    st.info(f"**{r2_text}**")
                 
                 # Interpretação detalhada
                 st.subheader("📝 Interpretação da Correlação")
