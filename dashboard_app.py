@@ -135,7 +135,8 @@ def main():
         
         uploaded_file = st.file_uploader(
             "Selecione o arquivo Excel:",
-            type=['xlsx', 'xls']
+            type=['xlsx', 'xls'],
+            key="file_uploader"
         )
         
         if uploaded_file is not None:
@@ -172,7 +173,7 @@ def main():
         st.header("🎛️ Filtros Globais")
         
         # Botão para resetar todos os filtros
-        if st.button("🔄 Resetar Todos os Filtros", use_container_width=True):
+        if st.button("🔄 Resetar Todos os Filtros", use_container_width=True, key="reset_all_filters"):
             st.session_state.dados_processados = st.session_state.dados_originais.copy()
             st.session_state.filtro_data_limpo = False
             st.session_state.outliers_removidos = {}
@@ -180,7 +181,7 @@ def main():
         
         # Filtro de período
         if colunas_data:
-            coluna_data_filtro = st.selectbox("Coluna de data para filtro:", colunas_data)
+            coluna_data_filtro = st.selectbox("Coluna de data para filtro:", colunas_data, key="data_filter_col")
             
             if pd.api.types.is_datetime64_any_dtype(dados_processados[coluna_data_filtro]):
                 min_date = dados_processados[coluna_data_filtro].min()
@@ -194,11 +195,12 @@ def main():
                         "Selecione o período:",
                         value=(min_date, max_date),
                         min_value=min_date,
-                        max_value=max_date
+                        max_value=max_date,
+                        key="date_range_filter"
                     )
                 
                 # Botão para limpar filtro de data
-                if st.button("❌ Limpar Filtro de Data", use_container_width=True):
+                if st.button("❌ Limpar Filtro de Data", use_container_width=True, key="clear_date_filter"):
                     st.session_state.filtro_data_limpo = True
                     st.rerun()
                 
@@ -213,7 +215,7 @@ def main():
         st.subheader("🔍 Gerenciamento de Outliers")
         
         if colunas_numericas:
-            coluna_outliers = st.selectbox("Selecione a coluna para análise de outliers:", colunas_numericas)
+            coluna_outliers = st.selectbox("Selecione a coluna para análise de outliers:", colunas_numericas, key="outlier_col")
             
             if coluna_outliers:
                 # Detectar outliers
@@ -228,7 +230,7 @@ def main():
                         }))
                 
                 # Opção para remover outliers
-                if st.button(f"🗑️ Remover Outliers de '{coluna_outliers}'", use_container_width=True):
+                if st.button(f"🗑️ Remover Outliers de '{coluna_outliers}'", use_container_width=True, key=f"remove_outliers_{coluna_outliers}"):
                     dados_sem_outliers = dados_processados[~outliers_mask]
                     st.session_state.dados_processados = dados_sem_outliers
                     st.session_state.outliers_removidos[coluna_outliers] = True
@@ -250,18 +252,19 @@ def main():
             col1, col2, col3 = st.columns([2, 2, 1])
             
             with col1:
-                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data")
+                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data_col")
             with col2:
-                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_valor")
+                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_value_col")
             with col3:
                 tipo_grafico = st.selectbox("Tipo de Gráfico:", 
-                                           ["Linha", "Área", "Barra", "Scatter", "Boxplot Temporal"])
+                                           ["Linha", "Área", "Barra", "Scatter", "Boxplot Temporal"],
+                                           key="chart_type")
             
             if coluna_data and coluna_valor:
                 dados_temp = dados_processados.sort_values(by=coluna_data)
                 
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico")
+                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico", key="remove_outliers_chart_1")
                 
                 if remover_outliers_grafico:
                     outliers_df, outliers_mask = detectar_outliers(dados_temp, coluna_valor)
@@ -341,7 +344,7 @@ def main():
             
             if coluna_analise:
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("Remover outliers para análise")
+                remover_outliers_grafico = st.checkbox("Remover outliers para análise", key="remove_outliers_stats")
                 
                 dados_analise = dados_processados.copy()
                 if remover_outliers_grafico:
@@ -442,7 +445,7 @@ def main():
             
             if len(variaveis_selecionadas) > 1:
                 # Opção para remover outliers das correlações (CORRIGIDO)
-                remover_outliers_corr = st.checkbox("Remover outliers para análise de correlação")
+                remover_outliers_corr = st.checkbox("Remover outliers para análise de correlação", key="remove_outliers_corr")
                 
                 dados_corr = dados_processados.copy()
                 if remover_outliers_corr:
@@ -465,7 +468,7 @@ def main():
                 st.subheader("🔝 Top 10 Maiores e Menores Correlações")
                 
                 correlations = []
-                for i in range(len(corr_matrix.columns)):
+                for i in range(len(corr_matrix.columns):
                     for j in range(i+1, len(corr_matrix.columns)):
                         correlations.append({
                             'Variável 1': corr_matrix.columns[i],
@@ -510,7 +513,7 @@ def main():
             
             if eixo_x and eixo_y:
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico")
+                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico", key="remove_outliers_scatter")
                 
                 dados_scatter = dados_processados.copy()
                 if remover_outliers_grafico:
@@ -608,7 +611,8 @@ def main():
         label="📥 Baixar dados processados",
         data=csv,
         file_name="dados_processados.csv",
-        mime="text/csv"
+        mime="text/csv",
+        key="download_button"
     )
 
 if __name__ == "__main__":
