@@ -260,7 +260,7 @@ def main():
             if coluna_data and coluna_valor:
                 dados_temp = dados_processados.sort_values(by=coluna_data)
                 
-                # Opção para remover outliers diretamente no gráfico
+                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
                 remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
                 
                 if remover_outliers_grafico:
@@ -340,7 +340,7 @@ def main():
             coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas, key="stats_col")
             
             if coluna_analise:
-                # Opção para remover outliers diretamente no gráfico
+                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
                 remover_outliers_grafico = st.checkbox("📉 Remover outliers para análise")
                 
                 dados_analise = dados_processados.copy()
@@ -384,12 +384,12 @@ def main():
                     skewness = dados_analise[coluna_analise].skew()
                     kurtosis = dados_analise[coluna_analise].kurtosis()
                     
-                    st.write("**📊 Medidas de Forma:**")
+                    st.write("📊 **Medidas de Forma:**")
                     st.metric("Assimetria", f"{skewness:.3f}")
                     st.metric("Curtose", f"{kurtosis:.3f}")
                     
                     # Interpretação
-                    st.write("**📝 Interpretação:**")
+                    st.write("📝 **Interpretação:**")
                     if abs(skewness) < 0.5:
                         st.success("• Distribuição aproximadamente simétrica")
                     elif abs(skewness) < 1:
@@ -441,7 +441,7 @@ def main():
             )
             
             if len(variaveis_selecionadas) > 1:
-                # Opção para remover outliers das correlações
+                # Opção para remover outliers das correlações (CORRIGIDO)
                 remover_outliers_corr = st.checkbox("📉 Remover outliers para análise de correlação")
                 
                 dados_corr = dados_processados.copy()
@@ -479,7 +479,7 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.write("**📈 10 Maiores Correlações:**")
+                    st.write("📈 **10 Maiores Correlações:**")
                     top_correlations = df_corr.nlargest(10, 'Abs_Correlation')
                     for _, row in top_correlations.iterrows():
                         corr_color = "🟢" if row['Correlação'] > 0 else "🔴"
@@ -489,7 +489,7 @@ def main():
                         st.write("---")
                 
                 with col2:
-                    st.write("**📉 10 Menores Correlações:**")
+                    st.write("📉 **10 Menores Correlações:**")
                     bottom_correlations = df_corr.nsmallest(10, 'Abs_Correlation')
                     for _, row in bottom_correlations.iterrows():
                         corr_color = "🟢" if row['Correlação'] > 0 else "🔴"
@@ -509,7 +509,7 @@ def main():
                 eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
-                # Opção para remover outliers diretamente no gráfico
+                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
                 remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
                 
                 dados_scatter = dados_processados.copy()
