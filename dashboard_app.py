@@ -119,6 +119,16 @@ def criar_qq_plot_correto(data):
 def main():
     st.title("📊 Dashboard de Utilidades - Análise Completa")
     
+    # Inicializar estado da sessão
+    if 'dados_originais' not in st.session_state:
+        st.session_state.dados_originais = None
+    if 'dados_processados' not in st.session_state:
+        st.session_state.dados_processados = None
+    if 'filtro_data_limpo' not in st.session_state:
+        st.session_state.filtro_data_limpo = False
+    if 'outliers_removidos' not in st.session_state:
+        st.session_state.outliers_removidos = {}
+    
     # Sidebar para upload
     with st.sidebar:
         st.header("📁 Carregamento de Dados")
@@ -141,8 +151,13 @@ def main():
         st.error("❌ Falha ao carregar os dados.")
         st.stop()
 
+    # Inicializar dados na sessão se necessário
+    if st.session_state.dados_originais is None:
+        st.session_state.dados_originais = dados.copy()
+        st.session_state.dados_processados = dados.copy()
+
     # Processar dados
-    dados_processados = dados.copy()
+    dados_processados = st.session_state.dados_processados.copy()
     colunas_numericas = dados_processados.select_dtypes(include=[np.number]).columns.tolist()
     
     # Detectar colunas de data
@@ -156,21 +171,38 @@ def main():
     with st.sidebar:
         st.header("🎛️ Filtros Globais")
         
+        # Botão para resetar todos os filtros
+        if st.button("🔄 Resetar Todos os Filtros", use_container_width=True):
+            st.session_state.dados_processados = st.session_state.dados_originais.copy()
+            st.session_state.filtro_data_limpo = False
+            st.session_state.outliers_removidos = {}
+            st.rerun()
+        
         # Filtro de período
         if colunas_data:
             coluna_data_filtro = st.selectbox("Coluna de data para filtro:", colunas_data)
+            
             if pd.api.types.is_datetime64_any_dtype(dados_processados[coluna_data_filtro]):
                 min_date = dados_processados[coluna_data_filtro].min()
                 max_date = dados_processados[coluna_data_filtro].max()
                 
-                date_range = st.date_input(
-                    "Selecione o período:",
-                    value=(min_date, max_date),
-                    min_value=min_date,
-                    max_value=max_date
-                )
+                # Verificar se o filtro foi limpo
+                if st.session_state.filtro_data_limpo:
+                    date_range = (min_date, max_date)
+                else:
+                    date_range = st.date_input(
+                        "Selecione o período:",
+                        value=(min_date, max_date),
+                        min_value=min_date,
+                        max_value=max_date
+                    )
                 
-                if len(date_range) == 2:
+                # Botão para limpar filtro de data
+                if st.button("❌ Limpar Filtro de Data", use_container_width=True):
+                    st.session_state.filtro_data_limpo = True
+                    st.rerun()
+                
+                if len(date_range) == 2 and not st.session_state.filtro_data_limpo:
                     start_date, end_date = date_range
                     dados_processados = dados_processados[
                         (dados_processados[coluna_data_filtro] >= pd.Timestamp(start_date)) &
@@ -196,11 +228,12 @@ def main():
                         }))
                 
                 # Opção para remover outliers
-                remover_outliers = st.checkbox("Remover outliers desta coluna")
-                
-                if remover_outliers:
-                    dados_processados = dados_processados[~outliers_mask]
+                if st.button(f"🗑️ Remover Outliers de '{coluna_outliers}'", use_container_width=True):
+                    dados_sem_outliers = dados_processados[~outliers_mask]
+                    st.session_state.dados_processados = dados_sem_outliers
+                    st.session_state.outliers_removidos[coluna_outliers] = True
                     st.success(f"✅ {len(outliers_df)} outliers removidos da coluna '{coluna_outliers}'")
+                    st.rerun()
 
     # Abas principais
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -226,6 +259,14 @@ def main():
             
             if coluna_data and coluna_valor:
                 dados_temp = dados_processados.sort_values(by=coluna_data)
+                
+                # Opção para remover outliers diretamente no gráfico
+                remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
+                
+                if remover_outliers_grafico:
+                    outliers_df, outliers_mask = detectar_outliers(dados_temp, coluna_valor)
+                    dados_temp = dados_temp[~outliers_mask]
+                    st.info(f"📊 {len(outliers_df)} outliers removidos para visualização")
                 
                 # Criar gráfico baseado no tipo selecionado
                 if tipo_grafico == "Linha":
@@ -299,15 +340,24 @@ def main():
             coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas, key="stats_col")
             
             if coluna_analise:
+                # Opção para remover outliers diretamente no gráfico
+                remover_outliers_grafico = st.checkbox("📉 Remover outliers para análise")
+                
+                dados_analise = dados_processados.copy()
+                if remover_outliers_grafico:
+                    outliers_df, outliers_mask = detectar_outliers(dados_analise, coluna_analise)
+                    dados_analise = dados_analise[~outliers_mask]
+                    st.info(f"📊 {len(outliers_df)} outliers removidos para análise")
+                
                 # Estatísticas básicas
                 st.subheader("📋 Estatísticas Descritivas Completas")
-                stats_data = dados_processados[coluna_analise].describe()
+                stats_data = dados_analise[coluna_analise].describe()
                 
                 col1, col2, col3, col4 = st.columns(4)
                 metrics = [
                     ("Média", stats_data['mean']),
                     ("Mediana", stats_data['50%']),
-                    ("Moda", dados_processados[coluna_analise].mode().iloc[0] if not dados_processados[coluna_analise].mode().empty else np.nan),
+                    ("Moda", dados_analise[coluna_analise].mode().iloc[0] if not dados_analise[coluna_analise].mode().empty else np.nan),
                     ("Desvio Padrão", stats_data['std']),
                     ("Variância", stats_data['std']**2),
                     ("Coef. Variação", (stats_data['std']/stats_data['mean'])*100 if stats_data['mean'] != 0 else 0),
@@ -331,8 +381,8 @@ def main():
                 
                 with dist_col1:
                     # Coeficientes de forma
-                    skewness = dados_processados[coluna_analise].skew()
-                    kurtosis = dados_processados[coluna_analise].kurtosis()
+                    skewness = dados_analise[coluna_analise].skew()
+                    kurtosis = dados_analise[coluna_analise].kurtosis()
                     
                     st.write("**📊 Medidas de Forma:**")
                     st.metric("Assimetria", f"{skewness:.3f}")
@@ -356,14 +406,14 @@ def main():
                 
                 with dist_col2:
                     # Gráficos de distribuição
-                    fig = px.histogram(dados_processados, x=coluna_analise, 
+                    fig = px.histogram(dados_analise, x=coluna_analise, 
                                       title=f"Distribuição de {coluna_analise}",
                                       nbins=30, marginal="box")
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # Gráfico Q-Q CORRIGIDO
                 st.subheader("📊 Gráfico Q-Q (Análise de Normalidade)")
-                fig_qq = criar_qq_plot_correto(dados_processados[coluna_analise])
+                fig_qq = criar_qq_plot_correto(dados_analise[coluna_analise])
                 st.plotly_chart(fig_qq, use_container_width=True)
                 
                 # Análise de outliers
@@ -391,8 +441,18 @@ def main():
             )
             
             if len(variaveis_selecionadas) > 1:
+                # Opção para remover outliers das correlações
+                remover_outliers_corr = st.checkbox("📉 Remover outliers para análise de correlação")
+                
+                dados_corr = dados_processados.copy()
+                if remover_outliers_corr:
+                    for var in variaveis_selecionadas:
+                        outliers_df, outliers_mask = detectar_outliers(dados_corr, var)
+                        dados_corr = dados_corr[~outliers_mask]
+                    st.info("Outliers removidos de todas as variáveis selecionadas")
+                
                 # Matriz de correlação
-                corr_matrix = dados_processados[variaveis_selecionadas].corr()
+                corr_matrix = dados_corr[variaveis_selecionadas].corr()
                 
                 fig = px.imshow(corr_matrix, 
                                title="Matriz de Correlação",
@@ -449,19 +509,30 @@ def main():
                 eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
+                # Opção para remover outliers diretamente no gráfico
+                remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
+                
+                dados_scatter = dados_processados.copy()
+                if remover_outliers_grafico:
+                    outliers_x, outliers_mask_x = detectar_outliers(dados_scatter, eixo_x)
+                    outliers_y, outliers_mask_y = detectar_outliers(dados_scatter, eixo_y)
+                    outliers_mask = outliers_mask_x | outliers_mask_y
+                    dados_scatter = dados_scatter[~outliers_mask]
+                    st.info(f"📊 {outliers_mask.sum()} outliers removidos para visualização")
+                
                 # Gráfico de dispersão
-                fig = px.scatter(dados_processados, x=eixo_x, y=eixo_y, 
+                fig = px.scatter(dados_scatter, x=eixo_x, y=eixo_y, 
                                 title=f"{eixo_y} vs {eixo_x}")
                 
                 # Calcular regressão linear manualmente
                 slope, intercept, r_squared = calcular_regressao_linear(
-                    dados_processados[eixo_x].values,
-                    dados_processados[eixo_y].values
+                    dados_scatter[eixo_x].values,
+                    dados_scatter[eixo_y].values
                 )
                 
                 # Adicionar linha de regressão manualmente se possível
                 if slope is not None and intercept is not None:
-                    x_range = np.linspace(dados_processados[eixo_x].min(), dados_processados[eixo_x].max(), 100)
+                    x_range = np.linspace(dados_scatter[eixo_x].min(), dados_scatter[eixo_x].max(), 100)
                     y_pred = slope * x_range + intercept
                     
                     fig.add_trace(go.Scatter(
@@ -496,7 +567,7 @@ def main():
                 # Estatísticas de correlação COMPLETAS
                 st.subheader("📊 Estatísticas de Correlação e Regressão")
                 
-                correlacao = dados_processados[eixo_x].corr(dados_processados[eixo_y])
+                correlacao = dados_scatter[eixo_x].corr(dados_scatter[eixo_y])
                 
                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                 with col_stat1:
