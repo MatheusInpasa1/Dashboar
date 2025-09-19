@@ -98,7 +98,7 @@ def criar_qq_plot_correto(data):
         marker=dict(color='blue', size=6)
     ))
     
-    # Adicionar linha de tendência que passa pelo meio dos pontos
+    # Adicionar linha de tendência que passes pelo meio dos pontos
     fig.add_trace(go.Scatter(
         x=theoretical_quantiles,
         y=p(theoretical_quantiles),
@@ -263,7 +263,7 @@ def main():
             if coluna_data and coluna_valor:
                 dados_temp = dados_processados.sort_values(by=coluna_data)
                 
-                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
+                # Opção para remover outliers diretamente no gráfico
                 remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico", key="remove_outliers_chart_1")
                 
                 if remover_outliers_grafico:
@@ -343,7 +343,7 @@ def main():
             coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas, key="stats_col")
             
             if coluna_analise:
-                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
+                # Opção para remover outliers diretamente no gráfico
                 remover_outliers_grafico = st.checkbox("Remover outliers para análise", key="remove_outliers_stats")
                 
                 dados_analise = dados_processados.copy()
@@ -444,7 +444,7 @@ def main():
             )
             
             if len(variaveis_selecionadas) > 1:
-                # Opção para remover outliers das correlações (CORRIGIDO)
+                # Opção para remover outliers das correlações
                 remover_outliers_corr = st.checkbox("Remover outliers para análise de correlação", key="remove_outliers_corr")
                 
                 dados_corr = dados_processados.copy()
@@ -468,7 +468,7 @@ def main():
                 st.subheader("🔝 Top 10 Maiores e Menores Correlações")
                 
                 correlations = []
-                for i in range(len(corr_matrix.columns):
+                for i in range(len(corr_matrix.columns)):
                     for j in range(i+1, len(corr_matrix.columns)):
                         correlations.append({
                             'Variável 1': corr_matrix.columns[i],
@@ -512,7 +512,7 @@ def main():
                 eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
             
             if eixo_x and eixo_y:
-                # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
+                # Opção para remover outliers diretamente no gráfico
                 remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico", key="remove_outliers_scatter")
                 
                 dados_scatter = dados_processados.copy()
@@ -602,7 +602,7 @@ def main():
                 else:
                     st.warning("**Correlação Fraca**")
                     st.write("• Relação fraca ou inexistente")
-                    st.write("• Variáveis praticamente independente")
+                    st.write("• Variáveis praticamente independentes")
 
     # Download dos dados processados
     st.sidebar.header("💾 Exportar Dados")
