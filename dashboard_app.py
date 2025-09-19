@@ -95,7 +95,7 @@ def criar_qq_plot_correto(data):
         y=sample_quantiles,
         mode='markers',
         name='Dados',
-        marker=dict(color='blue', size=6)
+        marker=dict(color='white', size=6)
     ))
     
     # Adicionar linha de tendência que passes pelo meio dos pontos
@@ -617,3 +617,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
