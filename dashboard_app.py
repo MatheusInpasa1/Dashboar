@@ -129,6 +129,16 @@ def main():
     if 'outliers_removidos' not in st.session_state:
         st.session_state.outliers_removidos = {}
     
+    # Inicializar seleções atuais
+    if 'current_selections' not in st.session_state:
+        st.session_state.current_selections = {
+            'temp_data_col': None,
+            'temp_value_col': None,
+            'stats_col': None,
+            'scatter_x': None,
+            'scatter_y': None
+        }
+    
     # Sidebar para upload
     with st.sidebar:
         st.header("📁 Carregamento de Dados")
@@ -160,6 +170,7 @@ def main():
     # Processar dados
     dados_processados = st.session_state.dados_processados.copy()
     colunas_numericas = dados_processados.select_dtypes(include=[np.number]).columns.tolist()
+    colunas_texto = dados_processados.select_dtypes(include=['object', 'category']).columns.tolist()
     
     # Detectar colunas de data
     colunas_data = []
@@ -211,11 +222,37 @@ def main():
                         (dados_processados[coluna_data_filtro] <= pd.Timestamp(end_date))
                     ]
         
+        # Filtro de colunas de texto (categóricas)
+        if colunas_texto:
+            st.subheader("📋 Filtros de Categorias")
+            coluna_categoria = st.selectbox("Selecione a coluna para filtrar:", 
+                                          [""] + colunas_texto, 
+                                          key="categoria_col")
+            
+            if coluna_categoria:
+                categorias_unicas = dados_processados[coluna_categoria].dropna().unique()
+                categorias_selecionadas = st.multiselect(
+                    f"Selecione as categorias de {coluna_categoria}:",
+                    options=categorias_unicas,
+                    default=categorias_unicas,
+                    key=f"categorias_{coluna_categoria}"
+                )
+                
+                if categorias_selecionadas:
+                    dados_processados = dados_processados[
+                        dados_processados[coluna_categoria].isin(categorias_selecionadas)
+                    ]
+        
         # Filtro de outliers - AGORA FUNCIONAL
         st.subheader("🔍 Gerenciamento de Outliers")
         
         if colunas_numericas:
-            coluna_outliers = st.selectbox("Selecione a coluna para análise de outliers:", colunas_numericas, key="outlier_col")
+            # Usar seleção atual se disponível, senão usar primeira coluna
+            default_outlier_col = st.session_state.current_selections.get('temp_value_col') or st.session_state.current_selections.get('stats_col') or colunas_numericas[0]
+            coluna_outliers = st.selectbox("Selecione a coluna para análise de outliers:", 
+                                         colunas_numericas, 
+                                         index=colunas_numericas.index(default_outlier_col) if default_outlier_col in colunas_numericas else 0,
+                                         key="outlier_col")
             
             if coluna_outliers:
                 # Detectar outliers
@@ -252,9 +289,21 @@ def main():
             col1, col2, col3 = st.columns([2, 2, 1])
             
             with col1:
-                coluna_data = st.selectbox("Coluna de Data:", colunas_data, key="temp_data_col")
+                # Usar seleção anterior se disponível
+                default_data_col = st.session_state.current_selections.get('temp_data_col') or colunas_data[0]
+                coluna_data = st.selectbox("Coluna de Data:", colunas_data, 
+                                         index=colunas_data.index(default_data_col) if default_data_col in colunas_data else 0,
+                                         key="temp_data_col")
+                st.session_state.current_selections['temp_data_col'] = coluna_data
+            
             with col2:
-                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas, key="temp_value_col")
+                # Usar seleção anterior se disponível
+                default_value_col = st.session_state.current_selections.get('temp_value_col') or colunas_numericas[0]
+                coluna_valor = st.selectbox("Coluna para Análise:", colunas_numericas,
+                                          index=colunas_numericas.index(default_value_col) if default_value_col in colunas_numericas else 0,
+                                          key="temp_value_col")
+                st.session_state.current_selections['temp_value_col'] = coluna_valor
+            
             with col3:
                 tipo_grafico = st.selectbox("Tipo de Gráfico:", 
                                            ["Linha", "Área", "Barra", "Scatter", "Boxplot Temporal"],
@@ -340,7 +389,12 @@ def main():
         st.header("📊 Estatística Detalhada")
         
         if colunas_numericas:
-            coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas, key="stats_col")
+            # Usar seleção anterior se disponível
+            default_stats_col = st.session_state.current_selections.get('stats_col') or colunas_numericas[0]
+            coluna_analise = st.selectbox("Selecione a coluna para análise:", colunas_numericas,
+                                        index=colunas_numericas.index(default_stats_col) if default_stats_col in colunas_numericas else 0,
+                                        key="stats_col")
+            st.session_state.current_selections['stats_col'] = coluna_analise
             
             if coluna_analise:
                 # Opção para remover outliers diretamente no gráfico
@@ -507,9 +561,20 @@ def main():
         if len(colunas_numericas) >= 2:
             col1, col2 = st.columns(2)
             with col1:
-                eixo_x = st.selectbox("Eixo X:", colunas_numericas, key="scatter_x")
+                # Usar seleção anterior se disponível
+                default_scatter_x = st.session_state.current_selections.get('scatter_x') or colunas_numericas[0]
+                eixo_x = st.selectbox("Eixo X:", colunas_numericas,
+                                    index=colunas_numericas.index(default_scatter_x) if default_scatter_x in colunas_numericas else 0,
+                                    key="scatter_x")
+                st.session_state.current_selections['scatter_x'] = eixo_x
+            
             with col2:
-                eixo_y = st.selectbox("Eixo Y:", colunas_numericas, key="scatter_y")
+                # Usar seleção anterior se disponível
+                default_scatter_y = st.session_state.current_selections.get('scatter_y') or colunas_numericas[1] if len(colunas_numericas) > 1 else colunas_numericas[0]
+                eixo_y = st.selectbox("Eixo Y:", colunas_numericas,
+                                    index=colunas_numericas.index(default_scatter_y) if default_scatter_y in colunas_numericas else 1,
+                                    key="scatter_y")
+                st.session_state.current_selections['scatter_y'] = eixo_y
             
             if eixo_x and eixo_y:
                 # Opção para remover outliers diretamente no gráfico
@@ -617,4 +682,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
