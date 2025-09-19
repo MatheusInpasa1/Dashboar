@@ -261,7 +261,7 @@ def main():
                 dados_temp = dados_processados.sort_values(by=coluna_data)
                 
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
+                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico")
                 
                 if remover_outliers_grafico:
                     outliers_df, outliers_mask = detectar_outliers(dados_temp, coluna_valor)
@@ -341,7 +341,7 @@ def main():
             
             if coluna_analise:
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("📉 Remover outliers para análise")
+                remover_outliers_grafico = st.checkbox("Remover outliers para análise")
                 
                 dados_analise = dados_processados.copy()
                 if remover_outliers_grafico:
@@ -442,7 +442,7 @@ def main():
             
             if len(variaveis_selecionadas) > 1:
                 # Opção para remover outliers das correlações (CORRIGIDO)
-                remover_outliers_corr = st.checkbox("📉 Remover outliers para análise de correlação")
+                remover_outliers_corr = st.checkbox("Remover outliers para análise de correlação")
                 
                 dados_corr = dados_processados.copy()
                 if remover_outliers_corr:
@@ -510,7 +510,7 @@ def main():
             
             if eixo_x and eixo_y:
                 # Opção para remover outliers diretamente no gráfico (CORRIGIDO)
-                remover_outliers_grafico = st.checkbox("📉 Remover outliers deste gráfico")
+                remover_outliers_grafico = st.checkbox("Remover outliers deste gráfico")
                 
                 dados_scatter = dados_processados.copy()
                 if remover_outliers_grafico:
@@ -599,7 +599,7 @@ def main():
                 else:
                     st.warning("**Correlação Fraca**")
                     st.write("• Relação fraca ou inexistente")
-                    st.write("• Variáveis praticamente independentes")
+                    st.write("• Variáveis praticamente independente")
 
     # Download dos dados processados
     st.sidebar.header("💾 Exportar Dados")
